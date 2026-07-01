@@ -22,8 +22,14 @@ Every detector ships with an **eval** (known records → expected Outcomes) so "
 
 1. **Stripe chargebacks** — `detectors.stripe` — first-class Dispute objects. ✅ **11-case eval**
    (`examples/stripe_detector_eval.py`); `packs.stripe.outcomes_from_disputes` routes through it.
-2. **ERP AP credit-memos** — semi-structured records. *(next)*
-3. **Support / refund tickets** — the outcome is free-text, reasoning-required. *(later)*
+2. **ERP AP credit-memos** — `detectors.erp` — semi-structured (credit memos / debit notes). ✅
+   **8-case eval** (`examples/erp_detector_eval.py`) + a **live ERPNext validation** (recovers every
+   Debit Note to the cent, 100% precision). Handles partial, multi-memo, linked/unlinked, sign,
+   attribution, dedup. *Caveat surfaced live:* `realized_loss` is the SoR's **clawback amount** — it
+   equals true economic loss for whole-invoice errors (duplicate/fraud) but overstates it for a
+   partial error (overpay) reversed by a full-invoice memo → disentangling that needs Stage 3.
+3. **Support / refund tickets** — the outcome is free-text, reasoning-required. *(next — and it's
+   also what resolves the partial-reversal caveat above: reason about the true loss.)*
 
 ## Stripe chargeback detector
 
