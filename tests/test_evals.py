@@ -18,6 +18,7 @@ EVALS = [
     "examples/gateway_http_eval.py",
     "examples/gateway_init_http_eval.py",
     "examples/import_eval.py",
+    "examples/webhook_eval.py",
     "examples/verifier_offline_test.py",
     "examples/connectors_offline_test.py",
     "examples/phoenix_offline_test.py",

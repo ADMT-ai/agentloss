@@ -15,7 +15,8 @@
 
 ## Working in this repository
 
-- `agentloss/` — the SDK package (incl. `gateway.py`, the MCP proxy — `docs/GATEWAY.md`).
+- `agentloss/` — the SDK package (incl. `gateway.py`, the MCP proxy — `docs/GATEWAY.md`;
+  `importer.py` + `webhook.py`, the batch/push outcome channels — `docs/OUTCOMES.md`).
 - `dogfood/` — an oracle-validated demo harness (`python -m dogfood.run`, mock LLM, no deps).
 - `docs/SDK-SPEC.md` — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.
 - **Verify changes with `pytest -q`** — unit tests + every oracle eval (detectors, calibration,

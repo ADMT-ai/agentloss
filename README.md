@@ -97,22 +97,26 @@ See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
 [`examples/gateway_eval.py`](examples/gateway_eval.py) and
 [`examples/gateway_init_eval.py`](examples/gateway_init_eval.py) (oracle evals, in CI).
 
-## Ground truth from the warehouse: `agentloss import`
+## Ground truth, in whatever shape you have it
 
-No API, no MCP server, just a finance-team export? That's the most common case — and a CSV is
-enough:
+Outcomes reach the store through five channels — pick by where the reversals live
+(see [`docs/OUTCOMES.md`](docs/OUTCOMES.md)):
 
 ```bash
+# batch: the finance/warehouse export (no API needed; omit --map to draft one from the header)
 agentloss import --csv disputes.csv --store .agentloss/store.jsonl \
     --map "business_key=invoice_no,status=resolution,loss=amount" \
     --error-statuses lost --correct-statuses won --source chargeback --census
+
+# push: the rail's webhooks, mapped in real time
+agentloss listen --map events.json --store .agentloss/store.jsonl --port 8787
 ```
 
-Rows join to captured decisions on `business_key`; statuses in neither list are non-final and
-skipped (and kept out of the census). Run without `--map` to draft one from the file's own
-header + observed statuses. `--all-errors` for a pure-reversals export. Proven by
-[`examples/import_eval.py`](examples/import_eval.py) (money formatting, last-wins, census
-edge cases — in CI).
+Plus **pull** (the gateway's `agentloss_sync_outcomes` / SDK detectors), **code**
+(`record_outcomes`), and **generated** (`sample_and_verify` + calibration) — all writing the
+same rows, all sharing one status contract (non-final rows stay out of the census). Each
+channel is proven by an oracle eval in CI ([`import_eval`](examples/import_eval.py),
+[`webhook_eval`](examples/webhook_eval.py)).
 
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 

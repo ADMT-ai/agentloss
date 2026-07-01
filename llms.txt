@@ -91,12 +91,17 @@ into `tools/list` (the agent reads its own error rate through the same connectio
 to a JSONL store for out-of-process readout: `agentloss report --store <path>`. Works for ANY
 agent runtime — TypeScript, n8n, Claude Code — not only Python. See docs/GATEWAY.md.
 
-## Ground truth from a CSV export (the warehouse channel)
+## Ground-truth channels (docs/OUTCOMES.md)
 
-When the reversals live in a warehouse table or a finance export (no API at all), import them:
-`agentloss import --csv disputes.csv --store <store> --map "business_key=<col>,status=<col>,
-loss=<col>" --error-statuses lost --correct-statuses won --source chargeback [--census]
-[--all-errors]`. Omit --map to draft one from the file's header + observed statuses.
+Outcomes reach the store five ways; pick by where the reversals live. PULL: the gateway's
+agentloss_sync_outcomes / SDK detectors query the SoR's reversal read. PUSH: `agentloss listen
+--map events.json --store <store>` is a webhook endpoint mapping the rail's events (Stripe
+webhooks, ERP subscriptions) to outcomes in real time. BATCH: `agentloss import --csv
+disputes.csv --store <store> --map "business_key=<col>,status=<col>,loss=<col>"
+--error-statuses lost --correct-statuses won [--census] [--all-errors]` for warehouse/finance
+exports (omit --map to draft one from the header). CODE: record_outcomes(rows). GENERATED:
+sample_and_verify + calibrate. One status contract everywhere: statuses in neither list are
+non-final -> skipped and census-excluded.
 
 ## What it computes
 

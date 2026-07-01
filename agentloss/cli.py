@@ -157,6 +157,16 @@ def main(argv=None):
     p_imp.add_argument("--json", action="store_true", help="machine-readable output")
     p_imp.set_defaults(func=_import_cmd)
 
+    p_listen = sub.add_parser("listen", help="webhook listener: outcomes pushed by the "
+                                             "system of record, mapped in real time")
+    p_listen.add_argument("--map", required=True, help="event-map JSON (see agentloss/webhook.py)")
+    p_listen.add_argument("--store", required=True, help="JSONL store (joins + persists)")
+    p_listen.add_argument("--port", type=int, default=8787)
+    p_listen.add_argument("--host", default="127.0.0.1")
+    p_listen.add_argument("--secret", help="require X-Agentloss-Secret on every POST")
+    p_listen.set_defaults(func=lambda a: __import__(
+        "agentloss.webhook", fromlist=["main"]).main(a))
+
     sub.add_parser("gateway", help="MCP gateway: agentloss gateway --manifest m.json -- <cmd>")
 
     args = parser.parse_args(argv)
