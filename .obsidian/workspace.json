@@ -185,6 +185,7 @@
   },
   "active": "3446cc35519d045f",
   "lastOpenFiles": [
+    "docs/PACKS.md",
     "dist/agentloss-0.0.5-py3-none-any.whl",
     "dist/agentloss-0.0.5.tar.gz",
     "agentloss/packs/__pycache__/stripe.cpython-313.pyc",

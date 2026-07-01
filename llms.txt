@@ -88,4 +88,5 @@ derived metrics leave.
 ## Docs
 
 - docs/SDK-SPEC.md — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.
+- docs/PACKS.md — packs (capture off a payment SDK / ERP / agent-tool / context layer) + how to write one.
 - AGENTS.md — drop-in rule for coding agents.
