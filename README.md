@@ -1,5 +1,7 @@
 # agentloss
 
+[![ci](https://github.com/ADMT-ai/agentloss/actions/workflows/ci.yml/badge.svg)](https://github.com/ADMT-ai/agentloss/actions/workflows/ci.yml)
+
 **Your eval tool tells you your AI agent's hallucination rate. `agentloss` tells you what it
 costs.** An OpenTelemetry-native SDK that measures the real-world **error rate and dollar
 loss** of an AI agent's decisions — by capturing its consequential actions in-process and
@@ -62,6 +64,60 @@ boundary; only derived metrics leave.
 failures in plain language (outcomes reported but none counted, only-errors reported, a loss
 source that won't be summed). Or from a shell: `agentloss doctor --json`.
 
+## No code changes at all? The MCP gateway
+
+If your agent already reaches its system of record over **MCP** (a Stripe MCP server, an ERP
+MCP server), don't instrument code — put the agentloss gateway in front of that server. One
+config change, any agent runtime (not only Python):
+
+```bash
+agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...          # local
+agentloss gateway --manifest stripe.manifest.json \
+    --url https://mcp.stripe.com --header "Authorization: Bearer $KEY"                 # hosted
+```
+
+A JSON **manifest** (a pack, as data) declares which tools are consequential and where the
+reversal (dispute / credit-memo) lives; every consequential `tools/call` records a decision, and
+`agentloss_sync_outcomes` turns the rail's reversals into gold ground truth. The gateway also
+injects `agentloss_report` / `agentloss_doctor` into the server's tool list, so the agent reads
+its own error rate and dollar loss **through the same connection it acts through**. Readout
+out-of-process: `agentloss report --store .agentloss/store.jsonl`.
+
+Don't write the manifest — **draft it from the server itself**:
+
+```bash
+agentloss gateway init --out my.manifest.json -- <your server command>
+```
+
+`init` classifies the money-movers from the server's own `tools/list`, probes the reversal
+reads to derive the row paths from real data, and marks anything it can't establish with an
+explicit `_todo`. Ready-made manifests for known servers live in [`manifests/`](manifests/).
+
+See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
+[`examples/gateway_eval.py`](examples/gateway_eval.py) and
+[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py) (oracle evals, in CI).
+
+## Ground truth, in whatever shape you have it
+
+Outcomes reach the store through five channels — pick by where the reversals live
+(see [`docs/OUTCOMES.md`](docs/OUTCOMES.md)):
+
+```bash
+# batch: the finance/warehouse export (no API needed; omit --map to draft one from the header)
+agentloss import --csv disputes.csv --store .agentloss/store.jsonl \
+    --map "business_key=invoice_no,status=resolution,loss=amount" \
+    --error-statuses lost --correct-statuses won --source chargeback --census
+
+# push: the rail's webhooks, mapped in real time
+agentloss listen --map events.json --store .agentloss/store.jsonl --port 8787
+```
+
+Plus **pull** (the gateway's `agentloss_sync_outcomes` / SDK detectors), **code**
+(`record_outcomes`), and **generated** (`sample_and_verify` + calibration) — all writing the
+same rows, all sharing one status contract (non-final rows stay out of the census). Each
+channel is proven by an oracle eval in CI ([`import_eval`](examples/import_eval.py),
+[`webhook_eval`](examples/webhook_eval.py)).
+
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 
 Already tracing your agent with OpenInference/OpenTelemetry? Don't re-instrument. Add a few
@@ -106,7 +162,9 @@ AGENTLOSS_VERIFIER_LLM=claude ANTHROPIC_API_KEY=... python -m dogfood.run
 `agentloss` is built to be discovered and wired by coding agents:
 [`llms.txt`](llms.txt), the [`instrument-agent-reliability`](skills/instrument-agent-reliability/SKILL.md)
 skill, the [`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/agentloss_mcp.py)
-(`how_to_instrument`, `explain_attribute`, `validate_integration`).
+(`how_to_instrument`, `how_to_gateway`, `explain_attribute`, `validate_integration` — which
+inspects a persisted `--store` file, so an agent can *prove* its wiring). Every claim in the
+docs is backed by an oracle eval run in CI: `pytest -q`.
 
 ## License
 

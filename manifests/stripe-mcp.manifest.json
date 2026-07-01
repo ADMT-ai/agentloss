@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "use_case": "stripe_payments",
+  "_status": "draft — written against the official Stripe MCP (@stripe/mcp) published tool names; tool sets vary by version and --tools flags. Verify: re-run `agentloss gateway init` against YOUR server and diff, then confirm with agentloss_doctor. Amounts are Stripe minor units (amount_divisor 100); zero-decimal currencies (JPY, KRW, ...) need the SDK detector (agentloss.detectors.stripe) instead.",
+  "tools": {
+    "create_refund": {
+      "amount": "arguments.amount",
+      "amount_divisor": 100,
+      "business_key": "arguments.payment_intent",
+      "action": "refund",
+      "use_case": "refunds"
+    },
+    "finalize_invoice": {
+      "amount": "result.amount_due",
+      "amount_divisor": 100,
+      "currency": "result.currency",
+      "business_key": "result.id",
+      "action": "approve",
+      "use_case": "invoicing"
+    }
+  },
+  "outcomes": {
+    "list_disputes": {
+      "items": "result",
+      "business_key": "item.payment_intent",
+      "status": "item.status",
+      "loss": "item.amount",
+      "amount_divisor": 100,
+      "error_statuses": ["lost", "charge_refunded"],
+      "correct_statuses": ["won"],
+      "source": "chargeback",
+      "census": false,
+      "_note": "census=false: a disputes list is not a complete catch of errors on invoices/refunds. Set census=true only when every captured decision is a payment that disputes fully cover."
+    }
+  }
+}
