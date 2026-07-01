@@ -25,18 +25,31 @@ from ..spans import A_ACTION, A_KEY, ingest_spans
 _ATTR_PREFIX = "attributes."
 
 
-def _row_to_span(row):
+def _span_attrs(row):
+    """agentloss.* attribute dict from a Phoenix span row.
+
+    Phoenix groups dotted attributes into a nested dict under `attributes.agentloss`; older
+    shapes use flat `attributes.agentloss.*` columns. Handle both."""
+    ag = row.get(_ATTR_PREFIX + "agentloss")
+    if isinstance(ag, dict):
+        attrs = {f"agentloss.{k}": v for k, v in ag.items()}
+    else:
+        attrs = {c[len(_ATTR_PREFIX):]: v for c, v in row.items()
+                 if isinstance(c, str) and c.startswith(_ATTR_PREFIX + "agentloss.")}
+    for k in ("input.value", "output.value"):
+        v = row.get(_ATTR_PREFIX + k)
+        if v not in (None, ""):
+            attrs.setdefault(k, v)
+    return attrs
+
+
+def _row_to_span(row, span_id=None):
     """A Phoenix span row (dict) -> ({'attributes': {agentloss.*}}, span_id) or (None, None)."""
-    attrs = {}
-    for col, val in row.items():
-        if not isinstance(col, str) or not col.startswith(_ATTR_PREFIX):
-            continue
-        short = col[len(_ATTR_PREFIX):]
-        if short.startswith("agentloss.") or short in ("input.value", "output.value"):
-            attrs[short] = val
+    attrs = _span_attrs(row)
     if A_ACTION not in attrs or A_KEY not in attrs:
         return None, None
-    span_id = row.get("context.span_id") or row.get("span_id")
+    if span_id is None:
+        span_id = row.get("context.span_id") or row.get("span_id")
     return {"attributes": attrs}, span_id
 
 
@@ -66,12 +79,12 @@ def read_decisions(project=None, endpoint=None, limit=5000):
     if df is None or len(df) == 0:
         return 0, {}
     spans, key_to_span = [], {}
-    for row in df.reset_index().to_dict("records"):
-        span, sid = _row_to_span(row)
+    for span_id, row in df.iterrows():        # df index is context.span_id
+        span, sid = _row_to_span(row.to_dict(), span_id=span_id)
         if span is None:
             continue
         spans.append(span)
-        key_to_span[span["attributes"][A_KEY]] = sid
+        key_to_span[str(span["attributes"][A_KEY])] = sid
     return ingest_spans(spans), key_to_span
 
 
