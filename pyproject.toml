@@ -3,15 +3,16 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentaudit"
+name = "ailoss"
 version = "0.0.1"
-description = "OpenTelemetry-native reliability + dollar-impact instrumentation for AI agents"
+description = "Measure the real-world error rate and dollar cost of an AI agent's decisions. OpenTelemetry-native."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 keywords = [
-    "ai-agents", "agent-observability", "llm", "reliability", "evals",
-    "opentelemetry", "openinference", "ground-truth",
+    "ai-agents", "agent-evals", "production-evals", "llm", "reliability",
+    "error-rate", "cost-of-errors", "dollar-loss", "ground-truth", "outcomes",
+    "opentelemetry", "openinference", "agent-observability",
 ]
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
@@ -26,5 +27,9 @@ dependencies = []
 claude = ["anthropic>=0.40"]
 mcp = ["mcp>=1.0"]
 
+[project.urls]
+Homepage = "https://admt.ai"
+Repository = "https://github.com/admt/ailoss"
+
 [tool.setuptools]
-packages = ["agentaudit"]
+packages = ["ailoss"]

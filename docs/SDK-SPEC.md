@@ -1,6 +1,6 @@
-# AgentAudit SDK Spec — Agent-Adoptable Reliability Instrumentation
+# ailoss SDK Spec — Agent-Adoptable Reliability Instrumentation
 
-_Working name: **AgentAudit** (placeholder). OTel namespace: `ailoss.*`._
+_Working name: **ailoss** (placeholder). OTel namespace: `ailoss.*`._
 _Last updated 2026-06-30._
 
 ## What it is
@@ -64,7 +64,7 @@ bespoke verification per customer, pull it up into the pack or down into an adap
 Shortest-correct-path, illustrated on the AP beachhead:
 
 ```python
-from agentaudit import instrument, decision, Decision
+from ailoss import instrument, decision, Decision
 
 # 1) One line. Auto-instruments the agent framework via OpenInference,
 #    installs the OTel tracer + the ailoss span processor. Loads the pack + adapter.
@@ -86,7 +86,7 @@ def approve_payment(invoice) -> Decision:
 **Outcome reporting** (async; wired by the adapter, or called directly):
 
 ```python
-from agentaudit import report_outcome
+from ailoss import report_outcome
 
 report_outcome(
     business_key="INV-88231",
@@ -277,7 +277,7 @@ adjudication is not hand-coded per customer.
 
 ## Self-validation contract
 
-`agentaudit doctor --json` — the machine-readable check a coding agent runs to confirm
+`ailoss doctor --json` — the machine-readable check a coding agent runs to confirm
 integration:
 
 ```json
@@ -310,7 +310,7 @@ integration:
 Invoice ─▶ [ agent + @decision ]──tool calls──▶ ERP, payment rail
                  │  in-process: stamp ailoss.* + business_key, emit signed span
                  ▼
-        agentaudit processor (in customer VPC)
+        ailoss processor (in customer VPC)
           normalize → sign → redact → sample+verify → compute metrics
                  │                         │
    outcomes ─────┤                         ├─▶ LOCAL dashboard/JSON (no account)
@@ -325,7 +325,7 @@ installed (agent writes code)      ← agent, near-zero friction
    ↓  local-first: full value, we receive NOTHING (correct)
 locally valuable (dev sees metrics)
    ↓  ACTIVATION GATE — human-ratified
-activated (AGENTAUDIT_KEY set)     ← one env var; agent scaffolds it, human authorizes
+activated (AILOSS_KEY set)     ← one env var; agent scaffolds it, human authorizes
    ↓  derived metrics now flow to hosted backend
 outcome-wired (error rate + $)     ← Tier A day one; B/C as trust deepens
    ↓
@@ -342,11 +342,11 @@ downstream aggregation (out of scope)
 
 - **`llms.txt`** at the docs root: what it is + shortest correct usage + attribute
   list + pack/adapter recipe.
-- **MCP server** (`agentaudit-mcp`): `how_to_instrument(framework)`,
+- **MCP server** (`ailoss-mcp`): `how_to_instrument(framework)`,
   `write_adapter(system)`, `validate_integration()`, `explain_attribute(name)`.
 - **Coding-agent skill** (`instrument-agent-reliability`) with the canonical recipe.
 - **Rules snippet** for `CLAUDE.md` / `AGENTS.md` / `.cursorrules`.
-- **Framework plugins:** `agentaudit-langgraph`, `agentaudit-crewai` (auto-wrap tool nodes).
+- **Framework plugins:** `ailoss-langgraph`, `ailoss-crewai` (auto-wrap tool nodes).
 - High-signal README + clean registry metadata.
 
 ## What the SDK computes

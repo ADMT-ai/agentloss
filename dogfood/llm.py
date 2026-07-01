@@ -78,7 +78,7 @@ class ClaudeLLM:
         import anthropic  # requires `pip install anthropic` and ANTHROPIC_API_KEY
         self.client = anthropic.Anthropic()
         # same model for agent + verifier: the asymmetry we're testing is EVIDENCE, not capability.
-        self.model = model or os.environ.get("AGENTAUDIT_MODEL", "claude-sonnet-4-6")
+        self.model = model or os.environ.get("AILOSS_MODEL", "claude-sonnet-4-6")
 
     def _ask(self, prompt):
         msg = self.client.messages.create(
