@@ -27,9 +27,16 @@ Every detector ships with an **eval** (known records → expected Outcomes) so "
    Debit Note to the cent, 100% precision). Handles partial, multi-memo, linked/unlinked, sign,
    attribution, dedup. *Caveat surfaced live:* `realized_loss` is the SoR's **clawback amount** — it
    equals true economic loss for whole-invoice errors (duplicate/fraud) but overstates it for a
-   partial error (overpay) reversed by a full-invoice memo → disentangling that needs Stage 3.
-3. **Support / refund tickets** — the outcome is free-text, reasoning-required. *(next — and it's
-   also what resolves the partial-reversal caveat above: reason about the true loss.)*
+   partial error (overpay) reversed by a full-invoice memo → **now closed** by the reasoning detector
+   below (re-quantifying the true loss recovered the oracle exactly, `dogfood/erpnext/close_caveat.py`).
+3. **Reasoning-based** — `detectors.reasoning.reasoned_outcomes` — for a SoR where the outcome is
+   free-text / must be reasoned. Inject a `retrieve` (fuzzy-join) + a fallible `reasoner` (judge
+   `{should_have_been, estimated_loss}`); the detector maps verdicts → Outcomes and stays pure w.r.t.
+   the reasoner. ✅ **5-case plumbing eval** (`examples/reasoning_detector_eval.py`) + two live proofs:
+   an **ERP-grounded** reasoner closes the Stage-2 loss caveat *to the cent*, and **real-Claude
+   free-text** reasoning recovers the rate within CI on messy notes (`dogfood/erpnext/run_messy.py`).
+   The reasoner is fallible → feed its silver verdicts through sampling + two-phase verifier-bias
+   calibration for an unbiased number.
 
 ## Stripe chargeback detector
 

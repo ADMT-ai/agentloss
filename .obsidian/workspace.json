@@ -185,18 +185,18 @@
   },
   "active": "3446cc35519d045f",
   "lastOpenFiles": [
+    "examples/reasoning_detector_eval.py",
+    "agentloss/detectors/__pycache__/reasoning.cpython-313.pyc",
+    "agentloss/detectors/reasoning.py",
+    "dist/agentloss-0.0.9-py3-none-any.whl",
+    "dist/agentloss-0.0.9.tar.gz",
+    "dist",
     "agentloss/detectors/__pycache__/erp.cpython-313.pyc",
     "examples/erp_detector_eval.py",
     "agentloss/detectors/erp.py",
     "site/deploy.sh",
     "dist/agentloss-0.0.8-py3-none-any.whl",
-    "dist/agentloss-0.0.8.tar.gz",
     "docs/DETECTORS.md",
-    "site/llms.txt",
-    "agentloss/detectors/__pycache__/stripe.cpython-313.pyc",
-    "agentloss/detectors/__pycache__/__init__.cpython-313.pyc",
-    "agentloss/detectors/__pycache__",
-    "site/public/fd55bf3236d6a56a011cc9041602c1c8.txt",
     "docs/PACKS.md"
   ]
 }

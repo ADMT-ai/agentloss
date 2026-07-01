@@ -22,6 +22,6 @@ measured, not asserted. See `examples/stripe_detector_eval.py`.
 Ladder (increasing complexity): Stripe chargebacks (here) → ERP AP credit-memos → support/refund
 tickets (reasoning-required).
 """
-from . import erp, stripe  # noqa: F401
+from . import erp, reasoning, stripe  # noqa: F401
 
-__all__ = ["stripe", "erp"]
+__all__ = ["stripe", "erp", "reasoning"]
