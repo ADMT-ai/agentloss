@@ -28,8 +28,9 @@ claude = ["anthropic>=0.40"]
 mcp = ["mcp>=1.0"]
 
 [project.urls]
-Homepage = "https://admt.ai"
+Homepage = "https://agentloss.com"
 Repository = "https://github.com/ADMT-ai/agentloss"
+Organization = "https://admt.ai"
 
 [tool.setuptools]
 packages = ["agentloss"]
