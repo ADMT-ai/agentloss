@@ -14,6 +14,7 @@ EVALS = [
     "examples/reasoning_detector_eval.py",
     "examples/calibration_eval.py",
     "examples/gateway_eval.py",
+    "examples/gateway_init_eval.py",
     "examples/verifier_offline_test.py",
     "examples/connectors_offline_test.py",
     "examples/phoenix_offline_test.py",

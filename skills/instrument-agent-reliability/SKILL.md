@@ -65,7 +65,10 @@ Wire `agentloss` into an agent that takes consequential actions so its productio
   in front of it instead of steps 1–5. The manifest declares the consequential tools + the
   reversal tool; the gateway records decisions, syncs gold outcomes, and injects
   `agentloss_report`/`agentloss_doctor` into the agent's own tool list. Works for any agent
-  runtime (not only Python). See `docs/GATEWAY.md`; readout: `agentloss report --store <path>`.
+  runtime (not only Python). Draft the manifest from the server itself: `agentloss gateway init
+  --out m.json -- <server command>` (resolve any `_todo` markers it leaves — call the tool once,
+  read the shape); ready-made ones are in `manifests/`. See `docs/GATEWAY.md`; readout:
+  `agentloss report --store <path>`.
 - **Packs** (skip hand-instrumentation): if the action goes through a known distribution system
   (a payment SDK, an ERP client, an agent tool), apply a pack instead of steps 3–4.
   `agentloss.packs.capture(fn, amount_of=..., key_of=...)` wraps the money-mover so every call

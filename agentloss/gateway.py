@@ -346,8 +346,12 @@ class Gateway:
 # ---------------------------------------------------------------- entrypoint
 
 def main(argv=None):
-    """agentloss gateway --manifest m.json [--store path] -- <downstream command...>"""
+    """agentloss gateway --manifest m.json [--store path] -- <downstream command...>
+    agentloss gateway init [--out m.json] -- <downstream command...>   (draft the manifest)"""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["init"]:
+        from .gateway_init import main as init_main
+        return init_main(argv[1:])
     if "--" not in argv:
         print("usage: agentloss gateway --manifest m.json [--store path] -- <command...>",
               file=sys.stderr)

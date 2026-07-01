@@ -1,5 +1,7 @@
 # agentloss
 
+[![ci](https://github.com/ADMT-ai/agentloss/actions/workflows/ci.yml/badge.svg)](https://github.com/ADMT-ai/agentloss/actions/workflows/ci.yml)
+
 **Your eval tool tells you your AI agent's hallucination rate. `agentloss` tells you what it
 costs.** An OpenTelemetry-native SDK that measures the real-world **error rate and dollar
 loss** of an AI agent's decisions — by capturing its consequential actions in-process and
@@ -79,8 +81,19 @@ injects `agentloss_report` / `agentloss_doctor` into the server's tool list, so 
 its own error rate and dollar loss **through the same connection it acts through**. Readout
 out-of-process: `agentloss report --store .agentloss/store.jsonl`.
 
+Don't write the manifest — **draft it from the server itself**:
+
+```bash
+agentloss gateway init --out my.manifest.json -- <your server command>
+```
+
+`init` classifies the money-movers from the server's own `tools/list`, probes the reversal
+reads to derive the row paths from real data, and marks anything it can't establish with an
+explicit `_todo`. Ready-made manifests for known servers live in [`manifests/`](manifests/).
+
 See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
-[`examples/gateway_eval.py`](examples/gateway_eval.py) (an oracle eval, in CI).
+[`examples/gateway_eval.py`](examples/gateway_eval.py) and
+[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py) (oracle evals, in CI).
 
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 

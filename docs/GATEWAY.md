@@ -1,7 +1,8 @@
 # The agentloss gateway — measure any agent at the MCP boundary
 
-**Status: shipped (0.0.12) — `agentloss gateway`, proven end-to-end by an oracle eval
-(`examples/gateway_eval.py`).**
+**Status: shipped — `agentloss gateway` (0.0.12) and the `gateway init` manifest scaffolder
+(0.0.13), each proven end-to-end by an oracle eval (`examples/gateway_eval.py`,
+`examples/gateway_init_eval.py`).**
 
 ## Why a gateway
 
@@ -118,10 +119,25 @@ the two pack halves:
 Result paths prefer MCP `structuredContent`; if absent, the gateway JSON-parses the first
 `text` content block — the two shapes real MCP servers return.
 
-### Writing a manifest for a new server
+### Writing a manifest for a new server: `gateway init`
 
 This is the judgment a coding agent (or you) makes once per SoR, and it's the same two questions
-packs ask: *which tool moves money?* and *which tool exposes the reversals?* Concretely:
+packs ask: *which tool moves money?* and *which tool exposes the reversals?* `init` scaffolds it:
+
+```bash
+agentloss gateway init --out my.manifest.json [--use-case slug] [--no-probe] -- <server command>
+```
+
+It calls the downstream `tools/list`, classifies money-movers (committing verb + money noun, or
+an amount-like schema property; read-prefixed tools never qualify) and reversal reads (read
+prefix + dispute/chargeback/credit-memo/... noun). Because reads are safe, it then **probes**
+each zero-argument reversal candidate and derives `items` / `item.*` paths and the status
+mapping from the server's real response shape. Anything unresolved is an explicit `_todo` a
+coding agent can finish in one pass; minor-unit amounts get `amount_divisor: 100` with a note.
+Proven by `examples/gateway_init_eval.py`: against the mock SoR, the drafted manifest recovers
+the oracle numbers with zero edits. Ready-made manifests live in `manifests/`.
+
+The manual recipe, when you'd rather look yourself:
 
 1. `tools/list` the downstream server. Pick the money-movers; note the argument that carries the
    amount and the result field that carries the durable id.
@@ -180,10 +196,11 @@ MCP. Both write the same shapes; both are honest about the denominator.
 
 ## Roadmap
 
-- **Manifests for real servers** — Stripe MCP, ERPNext/NetSuite MCP, GitHub (a merge is a
-  commitment; a revert is a reversal). Each is a JSON file + an eval fixture, not a new pack.
-- **`agentloss gateway init`** — call the downstream `tools/list`, draft the manifest with an LLM,
-  human confirms the money-mover. The two judgments, scaffolded.
+- ~~**`agentloss gateway init`**~~ — ✅ shipped (0.0.13): heuristic classification + safe probing
+  of reversal reads; proven by `examples/gateway_init_eval.py`.
+- **Manifests for real servers** — Stripe MCP draft shipped (`manifests/`); next: ERPNext/NetSuite
+  MCP, GitHub (a merge is a commitment; a revert is a reversal). Each is a JSON file + an eval
+  fixture, not a new pack.
 - **HTTP/SSE transport** — same interception, second transport, for remote MCP servers.
 - **Soft outcomes** — a reversal tool whose rows need reasoning (`detectors.reasoning`) instead of
   a status enum; feeds the existing sampling + calibration for an honest number.
