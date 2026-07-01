@@ -185,6 +185,12 @@
   },
   "active": "3446cc35519d045f",
   "lastOpenFiles": [
+    "dist/agentloss-0.0.6-py3-none-any.whl",
+    "dist/agentloss-0.0.6.tar.gz",
+    "dist",
+    "agentloss/packs/__pycache__/tools.cpython-313.pyc",
+    "examples/tools_pack_test.py",
+    "agentloss/packs/tools.py",
     "docs/PACKS.md",
     "dist/agentloss-0.0.5-py3-none-any.whl",
     "dist/agentloss-0.0.5.tar.gz",

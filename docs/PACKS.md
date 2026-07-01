@@ -53,7 +53,7 @@ errors not yet surfaced) — then pair with `agentloss.sample_and_verify()` to e
 |---|---|---|---|
 | **Payment rails** — Stripe, PayPal, Adyen, Braintrust, and agent-payment protocols (AP2, x402) | charge / payment-intent / refund / payout | dispute · chargeback · refund | Stripe ✅; others = same shape |
 | **ERPs** — ERPNext, NetSuite, SAP, QuickBooks | purchase invoice / payment entry | credit-memo · debit-note · reversal | ERPNext proven (dogfood adapter) |
-| **Agent-tool protocols** — MCP tool calls, LangChain / CrewAI / OpenAI function tools | the consequential tool invocation | downstream correction / retry / human override | pattern maps via `capture` |
+| **Agent-tool protocols** — MCP tool calls, LangChain / CrewAI / OpenAI function tools | the consequential tool invocation | downstream correction / retry / human override | ✅ `agentloss.packs.tools` (instrument only the consequential tools in a toolset) |
 | **Business context layers** — Glean, MS Graph/Copilot (via MCP) | (context-in, not a money-mover) | **soft/unstructured outcomes** — a complaint email, a "that was wrong" in Slack, a reopened ticket | future "soft-outcome" pack |
 
 The context-layer row is the odd one out: it's not a money-mover, it's a place to *harvest ground
