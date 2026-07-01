@@ -21,10 +21,17 @@ def _doctor_cmd(args):
         f["id"] == "decisions_present" and f["level"] == "fail" for f in result["findings"]
     )
     if empty_store:
+        # A fresh CLI process has an empty store BY DESIGN — not a broken integration. Present it
+        # as informational so an agent that shells out first doesn't misread a FAIL.
+        for f in result["findings"]:
+            if f["level"] == "fail":
+                f["level"] = "info"
+        result["ok"] = True
+        result["level"] = "info"
         result["note"] = (
-            "The CLI runs in a fresh process with an empty store. To self-check a real "
-            "integration, call agentloss.doctor() (or validate_integration()) INSIDE your "
-            "app after decisions and outcomes are recorded."
+            "The CLI runs in a fresh process with an empty store — expected, not a broken "
+            "integration. To self-check a real integration, call agentloss.doctor() (or "
+            "validate_integration()) INSIDE your app after decisions and outcomes are recorded."
         )
     if args.json:
         print(json.dumps(result, indent=2))

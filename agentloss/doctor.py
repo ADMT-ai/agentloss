@@ -149,7 +149,7 @@ def validate_integration():
 def format_findings(result):
     """Render a doctor()/validate_integration() result as human-readable text."""
     findings = result.get("findings") or result.get("checks") or []
-    icon = {"ok": "PASS", "warn": "WARN", "fail": "FAIL"}
+    icon = {"ok": "PASS", "warn": "WARN", "fail": "FAIL", "info": "INFO"}
     lines = ["agentloss doctor", "=" * 60]
     for f in findings:
         lines.append(f"[{icon[f['level']]}] {f['id']}: {f['message']}")
