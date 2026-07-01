@@ -1,11 +1,11 @@
 ---
 name: instrument-agent-reliability
-description: Instrument an AI agent with AgentProof to measure its real-world error rate and dollar impact. Use when the user wants to know how often an agent is wrong, what its mistakes cost, whether it is safe to give more autonomy, or wants to make it insurable.
+description: Instrument an AI agent with agentaudit to measure its real-world error rate and dollar impact. Use when the user wants to know how often an agent is wrong, audit an AI agent's decisions, measure agent accuracy / error rate / hallucination rate in production, find out what an agent's mistakes cost, check whether an agent produces correct outcomes, get ground truth for agent outputs, decide whether it's safe to give an agent more autonomy, or make an agent auditable/insurable. Keywords: agent audit, agent reliability, agent evaluation, production evals, error rate, ground truth, outcome tracking, LLM agent monitoring.
 ---
 
-# Instrument agent reliability (AgentProof)
+# Instrument agent reliability (agentaudit)
 
-Wire AgentProof into an agent that takes consequential actions so its production error rate
+Wire `agentaudit` into an agent that takes consequential actions so its production error rate
 and dollar impact become measurable.
 
 ## Steps
@@ -14,11 +14,11 @@ and dollar impact become measurable.
    (send payment, approve, place order, write to a system of record). Instrument only these,
    not every LLM call.
 
-2. **Install:** `pip install agentproof`.
+2. **Install:** `pip install agentaudit`.
 
-3. **Wrap the action** with `@agentproof.decision`, returning a `Decision`:
+3. **Wrap the action** with `@agentaudit.decision`, returning a `Decision`:
    ```python
-   from agentproof import decision, Decision
+   from agentaudit import decision, Decision
 
    @decision
    def <action>(item):
@@ -34,7 +34,7 @@ and dollar impact become measurable.
 4. **Report outcomes** when truth resolves — from a downstream correction, dispute, audit,
    or the human-review queue:
    ```python
-   from agentproof import report_outcome
+   from agentaudit import report_outcome
    report_outcome(business_key=<id>, ground_truth=<correct action/value>,
                   source="human_queue|recovery_audit|dispute", realized_loss_usd=<loss or 0>)
    ```

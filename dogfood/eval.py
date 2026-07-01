@@ -1,13 +1,13 @@
-"""Scorecard: does AgentProof recover the planted truth?
+"""Scorecard: does AgentAudit recover the planted truth?
 
 The eval is the judge and is allowed to peek the oracle. The agent/verifier/SDK are not.
 """
-import agentproof
-from agentproof import metrics
+import agentaudit
+from agentaudit import metrics
 
 
 def scorecard(oracle, cfg, calib=None):
-    dec = agentproof.STORE.decisions
+    dec = agentaudit.STORE.decisions
     approved = {k: d for k, d in dec.items() if d.action == "approve"}
 
     # --- ORACLE TRUTH over the auto-approved population ---
@@ -22,7 +22,7 @@ def scorecard(oracle, cfg, calib=None):
     # --- verifier quality vs oracle, on the sampled+silver approved decisions ---
     tp = fp = fn = tn = 0
     for k, d in approved.items():
-        o = agentproof.STORE.outcomes.get(k)
+        o = agentaudit.STORE.outcomes.get(k)
         if o is None or o.source != "verification_agent":
             continue
         pred_err = o.ground_truth != "approve"
@@ -39,7 +39,7 @@ def scorecard(oracle, cfg, calib=None):
     lines = []
     p = lines.append
     p("=" * 66)
-    p("AGENTPROOF DOGFOOD SCORECARD")
+    p("AGENTAUDIT DOGFOOD SCORECARD")
     p("=" * 66)
     p(f"decisions total          : {len(dec)}")
     p(f"auto-approved            : {len(approved)}")

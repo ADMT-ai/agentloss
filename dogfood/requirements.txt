@@ -1,6 +1,6 @@
 # Core loop (mock LLM, ERP sim) needs NOTHING beyond the stdlib.
 # Optional, for later fidelity rungs:
-anthropic>=0.40      # AGENTPROOF_LLM=claude
+anthropic>=0.40      # AGENTAUDIT_LLM=claude
 fastapi>=0.115       # wrap erp.py as real HTTP (next fidelity step)
 uvicorn>=0.30
 httpx>=0.27          # agent talks to the ERP over HTTP

@@ -1,7 +1,7 @@
 """Generate a realistic AP stream and inject KNOWN errors → the oracle.
 
 The oracle (invoice_no -> {correct_action, error_type, true_loss_usd}) is the ground
-truth AgentProof must recover. The agent and verifier never see it; only the seeder,
+truth AgentAudit must recover. The agent and verifier never see it; only the seeder,
 the outcome simulator, and the eval scorecard do.
 """
 from random import Random
