@@ -29,7 +29,7 @@ mcp = ["mcp>=1.0"]
 
 [project.urls]
 Homepage = "https://admt.ai"
-Repository = "https://github.com/admt/ailoss"
+Repository = "https://github.com/ADMT-ai/ailoss"
 
 [tool.setuptools]
 packages = ["ailoss"]
