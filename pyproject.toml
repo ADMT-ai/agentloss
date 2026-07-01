@@ -26,11 +26,12 @@ dependencies = []
 [project.optional-dependencies]
 claude = ["anthropic>=0.40"]
 mcp = ["mcp>=1.0"]
+phoenix = ["arize-phoenix-client>=1.0", "pandas>=2.0"]
 
 [project.urls]
 Homepage = "https://agentloss.com"
 Repository = "https://github.com/ADMT-ai/agentloss"
 Organization = "https://admt.ai"
 
-[tool.setuptools]
-packages = ["agentloss"]
+[tool.setuptools.packages.find]
+include = ["agentloss*"]
