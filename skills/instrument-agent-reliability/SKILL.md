@@ -31,19 +31,39 @@ Wire `agentloss` into an agent that takes consequential actions so its productio
        )
    ```
 
-4. **Report outcomes** when truth resolves — from a downstream correction, dispute, audit,
-   or the human-review queue:
+4. **Report outcomes** when truth resolves — from a downstream correction, dispute, chargeback,
+   audit, or the human-review queue. If you ALREADY HAVE the ground truth (the common case),
+   this is the default: each outcome counts toward the number with no extra flags.
    ```python
-   from agentloss import report_outcome
-   report_outcome(business_key=<id>, ground_truth=<correct action/value>,
-                  source="human_queue|recovery_audit|dispute", realized_loss_usd=<loss or 0>)
-   ```
+   from agentloss import report_outcome, record_outcomes
 
-5. **What you get:** error rate by segment (with CIs), **realized + expected dollar loss**, and
+   # one outcome
+   report_outcome(business_key=<id>, ground_truth=<correct action/value>,
+                  source="recovery_audit",   # recovery_audit|dispute|chargeback|refund|human_queue|verification_agent
+                  realized_loss_usd=<loss or 0.0>)
+
+   # or a whole disputes/chargebacks-table join, in one line
+   record_outcomes([
+       {"business_key": <id>, "ground_truth": "reject", "source": "chargeback",
+        "realized_loss_usd": 80.0},
+       {"business_key": <id2>, "ground_truth": "approve", "source": "dispute"},  # a CORRECT one
+   ])
+   ```
+   Report the outcomes that AGREED with the agent too, not only the disputes — the rate's
+   denominator is reported approvals, so reporting only errors makes it read ~100%.
+
+5. **Confirm the wiring:** call `agentloss.doctor()` (in-process) or run `agentloss doctor
+   --json`. It catches the silent failures in plain language — outcomes reported but none
+   counted (0% rate), only-errors reported (~100% rate), a loss source that will not be summed.
+
+6. **What you get:** error rate by segment (with CIs), **realized + expected dollar loss**, and
    incremental risk vs. baseline. Raw data stays local; only derived metrics leave.
 
 ## Notes
-- Ground truth you cannot report directly is produced by active sampling + a verification agent
-  (see `docs/SDK-SPEC.md`) — you are not blocked on having labels, and it is real outcomes, not
-  an offline dataset.
+- `sampled` / `pi` are load-bearing but you rarely set them: they default to a full census, so
+  ground truth you already have counts by default. Pass `sampled=False` only for a biased
+  partial catch (an audit that surfaces errors but never confirms correct decisions).
+- Ground truth you cannot report directly is produced by `sample_and_verify(verify_fn)` — active
+  sampling + a verification agent (see `docs/SDK-SPEC.md`) — you are not blocked on having
+  labels, and it is real outcomes, not an offline dataset.
 - Keep it OpenTelemetry-aligned; do not build a bespoke telemetry format.

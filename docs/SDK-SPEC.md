@@ -61,41 +61,64 @@ bespoke verification per customer, pull it up into the pack or down into an adap
 
 ## Core API surface
 
-Shortest-correct-path, illustrated on the AP beachhead:
+Shortest-correct-path, illustrated on the AP beachhead. Wrap the consequential action with
+the bare `@decision` decorator; the wrapped function returns a `Decision`, which is recorded.
 
 ```python
-from agentloss import instrument, decision, Decision
+from agentloss import decision, Decision
 
-# 1) One line. Auto-instruments the agent framework via OpenInference,
-#    installs the OTel tracer + the agentloss span processor. Loads the pack + adapter.
-instrument(service="ap-agent", pack="ap", adapter="adapters/acme.yaml")
-
-# 2) Wrap the consequential action. The return value carries the moat attributes;
-#    the SDK stamps agentloss.* onto the active span and records the join key.
-@decision(use_case="ap_3way_match")
+# Wrap the consequential action. The return value carries the moat attributes and is
+# recorded in the store under its business_key (the join key for delayed outcomes).
+@decision
 def approve_payment(invoice) -> Decision:
     result = run_matching(invoice)          # existing agent logic
     return Decision(
         action=result.action,               # "approve" | "hold" | "reject"
         value_at_risk_usd=invoice.total,     # per-decision exposure / sum insured
         business_key=invoice.number,         # join key for delayed outcomes
-        # in_envelope auto-evaluated from the pack's ODD; override if needed
+        use_case="ap_3way_match",            # segmentation slug
     )
 ```
 
-**Outcome reporting** (async; wired by the adapter, or called directly):
+Already tracing with OpenInference/OpenTelemetry? Skip the decorator and ingest spans that
+carry `agentloss.*` attributes: `agentloss.ingest_spans(spans)`.
+
+**Outcome reporting** — the common case is *you already have the ground truth* (a disputes /
+chargebacks / audit table). By default each reported outcome is a **census observation**
+(`sampled=True, pi=1.0`) that counts toward the error rate and dollar loss with no extra
+flags:
 
 ```python
-from agentloss import report_outcome
+from agentloss import report_outcome, record_outcomes
 
+# one outcome
 report_outcome(
     business_key="INV-88231",
     ground_truth="duplicate-should-block",
     realized_loss_usd=14200,
     recovery_usd=0,
-    source="recovery_audit",          # erp | human_queue | recovery_audit | dispute | sample
+    source="recovery_audit",   # recovery_audit | dispute | chargeback | refund | human_queue | verification_agent
 )
+
+# or a whole disputes-table join, as a one-liner
+record_outcomes([
+    {"business_key": "INV-1", "ground_truth": "reject", "source": "chargeback",
+     "realized_loss_usd": 80.0},
+    {"business_key": "INV-2", "ground_truth": "approve", "source": "dispute"},  # a CORRECT one
+])
 ```
+
+Report the outcomes that **agreed** with the agent too, not only the disputes — the
+false-approve rate's denominator is *sampled approvals*, so reporting only errors makes it
+read ~100%.
+
+`sampled` / `pi` are load-bearing but you rarely set them. They default to a full census;
+pass `sampled=False` only for a biased partial catch (e.g. an audit that surfaces errors but
+never confirms correct decisions) that must NOT be treated as a random sample. The active
+sampler (`sample_and_verify`) sets both explicitly for its Horvitz-Thompson draws.
+
+When you have **no** external labels yet, `agentloss.sample_and_verify(verify_fn)` produces
+silver ground truth on a sampled subset (Tier A) — you are never stuck at zero.
 
 ## `agentloss.*` semantic conventions
 
@@ -277,32 +300,47 @@ adjudication is not hand-coded per customer.
 
 ## Self-validation contract
 
-`agentloss doctor --json` — the machine-readable check a coding agent runs to confirm
-integration:
+Two agent-facing self-checks inspect the in-process store and catch the silent failures a
+coding agent hits when wiring the SDK:
 
-```json
-{
-  "ok": false,
-  "checks": [
-    {"id": "tracer_installed",     "ok": true},
-    {"id": "pack_adapter_loaded",  "ok": true,  "pack": "ap", "adapter": "acme"},
-    {"id": "decisions_emitting",   "ok": true,  "count_1h": 412},
-    {"id": "business_key_present", "ok": true,  "coverage": 1.0},
-    {"id": "business_key_unique",  "ok": false, "dupe_rate": 0.03,
-     "fix": "business_key reused across vendors — namespace by vendor_id"},
-    {"id": "gt_source_reachable",  "ok": true,  "sources": ["human_queue","verification_agent"]},
-    {"id": "gt_resolvable_rate",   "ok": true,  "value": 0.71},
-    {"id": "verifier_calibrated",  "ok": false, "fix": "no gold labels yet; add human_queue or a recovery-audit CSV to calibrate"},
-    {"id": "sample_job_scheduled", "ok": false, "fix": "schedule sampler.run()"}
-  ]
-}
+- **`agentloss.doctor()`** → `{"ok", "level", "findings": [...]}`, each finding a
+  `{"level": "ok"|"warn"|"fail", "id", "message", "fix"}` in plain language. Call it inside
+  your app after decisions/outcomes are recorded.
+- **`agentloss.validate_integration()`** → the same checks with a pass/warn/fail summary
+  (also exposed as the MCP `validate_integration` tool).
+
+```python
+agentloss.doctor()
+# {
+#   "ok": False, "level": "fail",
+#   "findings": [
+#     {"level": "ok",   "id": "decisions_present", "message": "412 decision(s) captured.", "fix": ""},
+#     {"level": "ok",   "id": "outcomes_present",  "message": "83 outcome(s) reported.",   "fix": ""},
+#     {"level": "fail", "id": "outcomes_sampled",
+#      "message": "Outcomes are reported but NONE is marked sampled — the error rate will read 0% ...",
+#      "fix": "In agentloss >= 0.0.4 report_outcome defaults to sampled=True. ..."},
+#     {"level": "warn", "id": "correct_outcomes_present",
+#      "message": "All 83 reported outcomes are errors ... the error rate will read ~100%.", "fix": "..."},
+#     {"level": "warn", "id": "loss_source_counts",
+#      "message": "realized_loss_usd is set on a source that does NOT count toward realized loss ...", "fix": "..."}
+#   ]
+# }
 ```
+
+The checks specifically catch: outcomes present but **none sampled** (error rate reads 0% —
+the primary silent failure), **only error outcomes** reported (denominator collapse → ~100%),
+a **loss source** outside the counted enum (dollars silently dropped), and **no outcomes** at
+all.
+
+**CLI:** `agentloss doctor` and `agentloss doctor --json`. A CLI process has an empty store
+(decisions live in the running app), so the CLI runs the static/config checks and points you
+at the in-process `doctor()` — the agent-facing path.
 
 - Typed `Decision` / `Outcome` dataclasses with runtime validation → loud dev errors,
   safe no-ops in prod (never break the host agent).
 - `gt_resolvable_rate` — fraction of decisions with at least one reachable GT source;
-  the early warning that the error rate will be unmeasurable.
-- `verifier_calibrated` — flags a silver-only pipeline with no gold anchor.
+  the early warning that the error rate will be unmeasurable (note: a *low* coverage can be
+  correct-by-design early on — it is informational, not a failure).
 
 ## Data flow & activation
 

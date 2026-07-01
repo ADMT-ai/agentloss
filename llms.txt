@@ -37,17 +37,27 @@ def approve_payment(invoice):
         use_case="ap_3way_match",
     )
 
-# later, when the outcome resolves (a correction, dispute, audit, or human review):
+# later, when the outcome resolves (a correction, dispute, chargeback, audit, or human review):
 report_outcome(
     business_key="INV-88231",
     ground_truth="duplicate-should-block",
-    source="recovery_audit",                 # human_queue | verification_agent | recovery_audit | dispute
+    # source: recovery_audit | dispute | chargeback | refund | human_queue | verification_agent
+    source="recovery_audit",
     realized_loss_usd=14200,
 )
 ```
 
-Ground truth you do not have yet is produced by the sampler + verification agent (see the
-spec) — you are never stuck at zero.
+If you ALREADY HAVE the ground truth (a disputes/chargebacks table — the common case), that's
+the default: each reported outcome counts toward the error rate and dollar loss with no extra
+flags. Join the whole table in one line with `record_outcomes(rows)`. Report the outcomes that
+AGREED with the agent too, not only the disputes — the rate's denominator is reported
+approvals, so reporting only errors makes it read ~100%. Ground truth you do not have yet is
+produced by `sample_and_verify(verify_fn)` (the sampler + verification agent) — never stuck at
+zero.
+
+Confirm the wiring with `agentloss.doctor()` (in-process) or `agentloss doctor --json` (CLI):
+it catches the silent failures — outcomes reported but none counted, only-errors reported, a
+loss source that will not be summed.
 
 ## What it computes
 

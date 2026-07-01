@@ -25,20 +25,42 @@ business — not every LLM call.
 ```python
 from agentloss import decision, report_outcome, Decision
 
-@decision
+@decision                                     # bare decorator; the returned Decision is recorded
 def approve_payment(invoice):
     action = run_matching(invoice)            # "approve" | "hold" | "reject"
     return Decision(action=action, value_at_risk_usd=invoice.total,
                     business_key=invoice.number, use_case="ap_3way_match")
 
-# when the outcome resolves (correction, dispute, audit, human review):
+# when the outcome resolves (correction, dispute, chargeback, audit, human review):
 report_outcome(business_key="INV-1", ground_truth="duplicate-should-block",
                source="recovery_audit", realized_loss_usd=14200)
 ```
 
+**You already have the ground truth?** (the common case — a disputes / chargebacks table).
+That's the default: each reported outcome is a census observation that counts toward the
+number, no flags needed. Join the whole table in one line:
+
+```python
+from agentloss import record_outcomes
+
+record_outcomes([
+    {"business_key": "INV-1", "ground_truth": "reject", "source": "chargeback",
+     "realized_loss_usd": 80.0},
+    {"business_key": "INV-2", "ground_truth": "approve", "source": "dispute"},  # a CORRECT one
+])
+```
+
+Report the outcomes that **agreed** with the agent too, not only the disputes — the rate's
+denominator is *reported approvals*, so reporting only errors makes it read ~100%. `source`
+is one of `recovery_audit | dispute | chargeback | refund | human_queue | verification_agent`.
+
 It computes the error rate by segment (with confidence intervals), **realized + expected dollar
 loss**, and the agent's incremental risk vs. a baseline. Raw prompts/records stay in your
 boundary; only derived metrics leave.
+
+**Confirm the wiring** — `agentloss.doctor()` inspects the store and catches the silent
+failures in plain language (outcomes reported but none counted, only-errors reported, a loss
+source that won't be summed). Or from a shell: `agentloss doctor --json`.
 
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 
