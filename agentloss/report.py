@@ -32,8 +32,19 @@ def sample_and_verify(verify_fn=None, target_n=600, seed=0):
     return sampler.run_store(verify_fn, Params(target_n=target_n), random.Random(seed))
 
 
+def _currency():
+    """The currency to display amounts in — the decisions' currency if they agree, else USD."""
+    curs = {getattr(d, "currency", "USD") or "USD" for d in STORE.decisions.values()}
+    return curs.pop() if len(curs) == 1 else "USD"
+
+
+def _money(cur, amount):
+    return f"${amount:,.0f}" if cur == "USD" else f"{cur} {amount:,.0f}"
+
+
 def report():
-    """Compute the error rate + dollar loss from the captured store."""
+    """Compute the error rate + loss from the captured store. Amounts are in `currency`
+    (the `_usd` keys are legacy labels; the values carry whatever currency your decisions used)."""
     m = metrics.false_approve(Params())
     rl = metrics.realized_loss()
     return {
@@ -43,6 +54,7 @@ def report():
         "error_rate": m["rate_sampled"],
         "error_rate_ci": [m["ci_lo"], m["ci_hi"]],
         "error_rate_reweighted": m["rate_ht"],
+        "currency": _currency(),
         "expected_loss_usd": m["expected_loss_usd"],
         "expected_loss_se": m["expected_loss_se"],
         "realized_loss_usd": rl["realized_loss_usd"],
@@ -53,6 +65,7 @@ def report():
 def print_report():
     r = report()
     lo, hi = r["error_rate_ci"]
+    cur = r["currency"]
     print("=" * 60)
     print("agentloss report")
     print("=" * 60)
@@ -61,8 +74,10 @@ def print_report():
     print(f"ground-truth coverage: {r['gt_resolvable_rate']:.1%}")
     print("-" * 60)
     print(f"error rate           : {r['error_rate']:.3%}  [{lo:.3%}, {hi:.3%}]  (n={r['sampled']})")
-    print(f"expected loss        : ${r['expected_loss_usd']:,.0f}  "
-          f"(±${1.96 * r['expected_loss_se']:,.0f})")
-    print(f"realized loss (gold) : ${r['realized_loss_usd']:,.0f}")
+    print(f"expected loss        : {_money(cur, r['expected_loss_usd'])}  "
+          f"(±{_money(cur, 1.96 * r['expected_loss_se'])})")
+    print(f"realized loss (gold) : {_money(cur, r['realized_loss_usd'])}")
+    if r["expected_loss_se"] < 1e-9 and abs(r["expected_loss_usd"] - r["realized_loss_usd"]) < 1e-6:
+        print("  (expected == realized: full-census ground truth)")
     print("=" * 60)
     return r

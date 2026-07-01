@@ -8,14 +8,15 @@ _counter = itertools.count(1)
 
 @dataclass
 class Decision:
-    action: str                 # approve | hold | reject
-    value_at_risk_usd: float
-    business_key: str           # invoice_no — the join key for delayed outcomes
+    action: str                 # the action taken (any string); an error = outcome.ground_truth != action
+    value_at_risk_usd: float    # per-decision exposure (amount; `_usd` is a legacy label — set `currency`)
+    business_key: str           # the join key that late / cross-system outcomes are matched back on
     use_case: str = "ap_3way_match"
     model: str = "mock"
     in_envelope: bool = True
     decision_id: str = ""
     context: str = ""           # optional evidence for the verifier (agent input/output); local-only
+    currency: str = "USD"       # display currency for the amounts (the amounts are in this currency)
 
 
 @dataclass
