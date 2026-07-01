@@ -1,0 +1,25 @@
+# AP use-case pack (see docs/SDK-SPEC.md). Domain semantics only — never customer plumbing.
+pack: ap
+version: 1
+decision:
+  use_cases: [ap_3way_match]
+  action_space: [approve, hold, reject]
+ground_truth:
+  sources:                       # ordered by fidelity
+    - {id: recovery_correction, kind: system_of_record, fidelity: gold}   # tier C
+    - {id: human_queue,         kind: in_process,       fidelity: gold}    # tier A
+    - {id: recovery_audit,      kind: batch_file,       fidelity: gold}    # tier B
+    - {id: verification_agent,  kind: verifier,         fidelity: silver}  # tier A
+  expected_behavior_ref: policy   # verifier adjudicates against the customer's SOP
+loss:
+  taxonomy: [duplicate, overpay, qty, fraud, false_block, ambiguous]
+verification:
+  procedure: ap_reverify
+  tools_required: [invoice_history, contract_prices, po_lookup, vendor_risk]
+odd:
+  envelope_id: ap_v3
+  in_envelope:
+    all:
+      - {value_at_risk_usd: {max: 25000}}
+      - {vendor: {on_list: approved_vendor_master}}
+      - {checks_passed: {includes: [po_match, receipt_match]}}

@@ -1,0 +1,15 @@
+# Per-customer adapter for the in-process ERP sim. The ONLY per-customer artifact.
+# Swapping this for erpnext.yaml / netsuite.yaml leaves the `ap` pack unchanged.
+pack: ap
+maps:
+  business_key: invoice.invoice_no
+  value_at_risk_usd: invoice.amount
+ground_truth_bindings:
+  human_queue:         {source: in_process, workflow: exceptions}
+  recovery_audit:      {source: sim, delay_days: 20, catch_rate: 0.6}
+tool_bindings:
+  invoice_history: {via: erp.find_fuzzy_duplicate}   # reuse the agent's ERP access
+  contract_prices: {via: erp.contract_price}
+  po_lookup:       {via: erp.get_po}
+  vendor_risk:     {via: erp.vendor_risk}
+policy_ref: docs/AP-SOP-12.md
