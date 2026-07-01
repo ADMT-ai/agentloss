@@ -1,30 +1,31 @@
-"""End-to-end agentloss on a live Phoenix instance.
+"""Run agentloss over decision spans in a live Phoenix: read -> verify -> write back -> report.
 
-Prereqs:
-  pip install "agentloss[phoenix]"
-  # Phoenix running (e.g. `phoenix serve` at http://localhost:6006)
-  # your agent traced with OpenInference, and the consequential span carrying agentloss.* attrs:
-  #   span.set_attribute("agentloss.action", "approve")
-  #   span.set_attribute("agentloss.business_key", invoice_no)
-  #   span.set_attribute("agentloss.value_at_risk_usd", invoice_total)
-
+    pip install "agentloss[phoenix]"       # Phoenix running + spans emitted (phoenix_emit_spans.py)
+    # optional real verifier: pip install "agentloss[claude]" and set ANTHROPIC_API_KEY
     python examples/phoenix_live.py
+
+Then open http://localhost:6006 and look for `agentloss` annotations (loss/verdict) on the
+decision spans, alongside the printed error-rate + dollar-loss report.
 """
+import os
+
 import agentloss
 from agentloss.connectors import phoenix as ph
 
 
-def verify(decision):
-    """Verification agent (Tier A). Replace with an LLM that re-adjudicates with more evidence.
-
-    Return {should_have_been, confidence, estimated_loss}. If you already have real outcomes,
-    push them with agentloss.report_outcome(...) instead of sampling+verifying."""
-    return {"should_have_been": decision.action, "confidence": 0.5, "estimated_loss": 0.0}
+def heuristic_verify(decision):
+    """No-API-key verifier: flag decisions whose context marks a duplicate."""
+    bad = "DUPLICATE" in (decision.context or "")
+    return {"should_have_been": "reject" if bad else "approve",
+            "confidence": 0.9, "estimated_loss": decision.value_at_risk_usd if bad else 0.0}
 
 
 if __name__ == "__main__":
-    n, key_to_span = ph.read_decisions(project="my-agent")
-    print(f"ingested {n} decisions from Phoenix")
+    project = os.environ.get("PHOENIX_PROJECT", "agentloss-demo")
+    n, key_to_span = ph.read_decisions(project=project)
+    print(f"ingested {n} decisions from Phoenix project '{project}'")
+    # None -> default Claude verifier (needs agentloss[claude] + ANTHROPIC_API_KEY)
+    verify = None if os.environ.get("ANTHROPIC_API_KEY") else heuristic_verify
     agentloss.sample_and_verify(verify)
     print(f"wrote {ph.write_back(key_to_span)} annotations back to Phoenix (see the UI)")
     agentloss.print_report()

@@ -33,4 +33,17 @@ agentloss.print_report()                                 # error rate by segment
 uses `...spans.log_span_annotations_dataframe(...)`. The pure DataFrame↔agentloss mapping is
 unit-tested offline in `examples/phoenix_offline_test.py`.
 
+## Try it end-to-end on a local Phoenix (no agent needed)
+
+```bash
+pip install arize-phoenix "agentloss[phoenix]"    # add [claude] for the default LLM verifier
+phoenix serve                                      # http://localhost:6006
+python examples/phoenix_emit_spans.py              # seed Phoenix with decision spans
+python examples/phoenix_live.py                    # read -> verify -> write back -> report
+```
+
+Open http://localhost:6006 and look for `agentloss` annotations (loss/verdict) on the decision
+spans, next to the printed error-rate + dollar-loss report. (No `ANTHROPIC_API_KEY` → a built-in
+heuristic verifier runs so it works offline; set the key to use the default Claude verifier.)
+
 Next connectors (same pattern): Langfuse (scores API), Braintrust (feedback API), raw OTLP.
