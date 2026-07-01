@@ -34,4 +34,9 @@ def recovery_audit(oracle, cfg, rng):
             fidelity="gold",
             realized_loss_usd=loss,
             recovery_usd=round(loss * cfg.recovery_fraction, 2),
+            # A delayed audit only surfaces ERRORS (never confirms correct approvals), so it is
+            # a biased partial catch, NOT a random sample of the approved population. Keep it out
+            # of the rate estimator; the active sampler upgrades the ones it draws to sampled=True.
+            sampled=False,
+            pi=None,
         )

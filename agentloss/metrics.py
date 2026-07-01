@@ -52,10 +52,20 @@ def false_approve(cfg):
     }
 
 
+# Gold, realized-dollar ground-truth sources — an outcome carrying realized_loss_usd from
+# any of these counts toward realized loss. (verification_agent is silver/estimated, so its
+# dollars flow through expected_loss, never realized_loss.)
+REALIZED_LOSS_SOURCES = frozenset(
+    {"recovery_audit", "dispute", "chargeback", "refund", "human_queue"}
+)
+
+
 def realized_loss():
     total, recovered = 0.0, 0.0
     for o in STORE.outcomes.values():
-        if o.source == "recovery_audit" and o.realized_loss_usd:
+        # `is not None` (not truthiness): a resolved outcome with realized_loss_usd=0.0 is
+        # a real "$0 loss" observation, not an unresolved one.
+        if o.source in REALIZED_LOSS_SOURCES and o.realized_loss_usd is not None:
             total += o.realized_loss_usd
             recovered += o.recovery_usd or 0.0
     return {"realized_loss_usd": total, "recovered_usd": recovered,

@@ -51,12 +51,30 @@ def explain_attribute(name: str) -> str:
 
 @mcp.tool()
 def validate_integration(repo_path: str = ".") -> str:
-    """Checklist a coding agent can run to confirm a correct integration."""
-    return (
-        "Confirm: (1) only consequential actions are wrapped with @decision; (2) every Decision "
-        "sets a unique business_key and value_at_risk_usd; (3) report_outcome is wired to at least "
-        "one ground-truth source; (4) raw prompts/records do not leave the customer boundary."
-    )
+    """Run agentloss's self-check on the current process and return structured findings.
+
+    Calls agentloss.validate_integration(), which inspects the in-process store and catches
+    the silent failures (outcomes reported but none sampled -> 0% rate; only error outcomes
+    reported -> denominator collapse; realized loss on a source that won't be counted; no
+    outcomes at all). Falls back to a static checklist if the store is empty (e.g. the tool
+    runs in a fresh process, separate from the app that holds the decisions)."""
+    import json
+    try:
+        from agentloss import validate_integration as _vi
+        result = _vi()
+    except Exception as e:  # keep the tool importable / never crash the agent
+        return f"Could not run agentloss.validate_integration(): {e!r}"
+    if not result.get("checks") or result.get("level") == "fail" and all(
+        c["id"] in ("decisions_present",) for c in result["checks"]
+    ):
+        result["note"] = (
+            "Store empty in this process — decisions/outcomes live in the running app. Call "
+            "agentloss.validate_integration() INSIDE the app, or shell out to `agentloss doctor "
+            "--json`. Static checklist: (1) only consequential actions wrapped with @decision; "
+            "(2) every Decision sets a unique business_key + value_at_risk_usd; (3) report_outcome "
+            "or record_outcomes wired to a ground-truth source; (4) no raw records leave the boundary."
+        )
+    return json.dumps(result, indent=2)
 
 
 if __name__ == "__main__":
