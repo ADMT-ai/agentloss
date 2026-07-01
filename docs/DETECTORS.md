@@ -38,6 +38,16 @@ Every detector ships with an **eval** (known records → expected Outcomes) so "
    The reasoner is fallible → feed its silver verdicts through sampling + two-phase verifier-bias
    calibration for an unbiased number.
 
+## Calibration — making a fallible reasoner honest (`agentloss.calibrate`)
+
+A reasoning detector's raw numbers are biased. `calibrate(gold_action, gold_loss, cfg, rng)` spends a
+small **gold** budget (a human audit; the oracle in sim) to correct it — screen-and-confirm every
+flag (exact precision) + spot-check the negatives (miss rate), Horvitz-Thompson-weighted, with
+bootstrap CIs. **Proven** by a Monte-Carlo eval (`examples/calibration_eval.py`): a deliberately-biased
+reasoner (misses 35% of errors, overstates loss) is off by **+20% rate / +108% loss** raw, and
+calibration corrects it to **−2.5% / +0.5%** with **~95% CI coverage** — while the naive estimate
+stays wrong. This is what makes reasoning-based detection trustworthy.
+
 ## Stripe chargeback detector
 
 ```python

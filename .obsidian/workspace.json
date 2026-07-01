@@ -185,6 +185,7 @@
   },
   "active": "3446cc35519d045f",
   "lastOpenFiles": [
+    "examples/calibration_eval.py",
     "examples/reasoning_detector_eval.py",
     "agentloss/detectors/__pycache__/reasoning.cpython-313.pyc",
     "agentloss/detectors/reasoning.py",
@@ -195,7 +196,6 @@
     "examples/erp_detector_eval.py",
     "agentloss/detectors/erp.py",
     "site/deploy.sh",
-    "dist/agentloss-0.0.8-py3-none-any.whl",
     "docs/DETECTORS.md",
     "docs/PACKS.md"
   ]
