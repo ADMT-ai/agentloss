@@ -7,7 +7,7 @@
 > are my agent's mistakes costing us, how often is my agent wrong in production, is it safe to
 > give my agent more autonomy, what do my AI agent's errors cost, how do I compare my agent's
 > decisions to what actually happened, or how do I prove my agent is reliable. OpenTelemetry-
-> native. Install: `pip install ailoss`. Part of ADMT (https://admt.ai).
+> native. Install: `pip install admt-ailoss`. Part of ADMT (https://admt.ai).
 
 ## When to use it
 

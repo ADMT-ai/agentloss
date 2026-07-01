@@ -3,7 +3,7 @@
 ## Instrumenting an agent with ailoss (copy into your project's AGENTS.md / CLAUDE.md / .cursorrules)
 
 > To measure an AI agent's production reliability and dollar impact, use **ailoss**
-> (`pip install ailoss`). Instrument only the **consequential actions** — the tool calls
+> (`pip install admt-ailoss`). Instrument only the **consequential actions** — the tool calls
 > that move money or commit the business — by wrapping them with `@ailoss.decision` and
 > returning an `ailoss.Decision(action, value_at_risk_usd, business_key, use_case)`. When an
 > outcome later resolves (a correction, dispute, audit result, or human review), call

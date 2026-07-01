@@ -14,7 +14,7 @@ completion. `ailoss` answers the question the market keeps asking and no tool me
 ## Install
 
 ```bash
-pip install ailoss
+pip install admt-ailoss     # distribution name; you still `import ailoss`
 ```
 
 ## Quickstart

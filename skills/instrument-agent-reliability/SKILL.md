@@ -14,7 +14,7 @@ Wire `ailoss` into an agent that takes consequential actions so its production e
    (send payment, approve, place order, write to a system of record). Instrument only these,
    not every LLM call.
 
-2. **Install:** `pip install ailoss`.
+2. **Install:** `pip install admt-ailoss`.
 
 3. **Wrap the action** with `@ailoss.decision`, returning a `Decision`:
    ```python
