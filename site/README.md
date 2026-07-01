@@ -81,7 +81,7 @@ owner's action.**
 
 Do this in the Vercel dashboard after the first production deploy:
 
-1. **Project → Settings → Domains → Add** `agentloss.com` (and `www.agentloss.com`).
+1. **Project → Settings → Domains → Add** `≈` (and `www.agentloss.com`).
 2. Vercel shows the records to create at your DNS registrar/provider:
    - **Apex `agentloss.com`:** an **A record** to `76.76.21.21`
      *(or)* use Vercel nameservers / an `ALIAS`/`ANAME` to `cname.vercel-dns.com` if your

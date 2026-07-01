@@ -67,7 +67,9 @@ wraps the money-mover so every call auto-records a decision (amount = value-at-r
 `outcomes_from_reversals(reversed_keys, amount_by_key, source="chargeback")` turns the rail's
 disputes / chargebacks / refunds / credit-memos into gold ground truth (a census by default, so
 the rate is right too). One integration yields the decision, the exposure, and the ground truth.
-See `examples/payment_pack.py`.
+See `examples/payment_pack.py`. First-class **Stripe pack** (`agentloss.packs.stripe`): `instrument(stripe)`
+wraps `Charge`/`PaymentIntent`/`Refund`; disputes become gold ground truth via batch
+`outcomes_from_disputes(stripe)` or real-time `handle_webhook_event(event)`.
 
 ## What it computes
 
