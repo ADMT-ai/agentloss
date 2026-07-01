@@ -40,6 +40,22 @@ It computes the error rate by segment (with confidence intervals), **realized + 
 loss**, and the agent's incremental risk vs. a baseline. Raw prompts/records stay in your
 boundary; only derived metrics leave.
 
+## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
+
+Already tracing your agent with OpenInference/OpenTelemetry? Don't re-instrument. Add a few
+`agentloss.*` attributes to the consequential span, point agentloss at your spans, and it adds
+the loss/outcome layer on top of what your tracer already emits:
+
+```python
+from agentloss import ingest_spans, sample_and_verify, print_report
+
+ingest_spans(your_spans)       # OTel/OpenInference spans carrying agentloss.* attributes
+sample_and_verify(verify_fn)   # Tier A: get a number with no external labels wired
+print_report()                 # error rate by segment + dollar loss
+```
+
+See [`examples/from_spans.py`](examples/from_spans.py).
+
 ## How it works
 
 - **Instrument consequential actions, not the whole agent.** The costly events are the handful

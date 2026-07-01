@@ -68,3 +68,35 @@ def run(invoices_by_no, erp, cfg, rng, verify_fn):
             pi=pi,
         )
     return n_sampled
+
+
+def run_store(verify_fn, cfg, rng):
+    """Generic active sampling over the captured STORE (no ERP/invoice coupling).
+
+    verify_fn(decision) -> {should_have_been, confidence?, estimated_loss?}
+    A Decision that already has a GOLD outcome is kept (marked sampled), not re-verified.
+    """
+    probs = inclusion_probs(list(STORE.decisions.values()), cfg)
+    n_verified = 0
+    for key, d in list(STORE.decisions.items()):
+        pi = probs[key]
+        if rng.random() >= pi:
+            continue
+        existing = STORE.outcomes.get(key)
+        if existing is not None:
+            existing.sampled = True
+            existing.pi = pi
+            continue
+        v = verify_fn(d)
+        n_verified += 1
+        report_outcome(
+            key,
+            ground_truth=v["should_have_been"],
+            source="verification_agent",
+            fidelity="silver",
+            confidence=v.get("confidence", 0.8),
+            estimated_loss_usd=v.get("estimated_loss"),
+            sampled=True,
+            pi=pi,
+        )
+    return n_verified
