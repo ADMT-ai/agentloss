@@ -46,4 +46,19 @@ Open http://localhost:6006 and look for `agentloss` annotations (loss/verdict) o
 spans, next to the printed error-rate + dollar-loss report. (No `ANTHROPIC_API_KEY` → a built-in
 heuristic verifier runs so it works offline; set the key to use the default Claude verifier.)
 
-Next connectors (same pattern): Langfuse (scores API), Braintrust (feedback API), raw OTLP.
+## Langfuse (`agentloss.connectors.langfuse`) — built to docs, not yet live-verified
+
+Put `agentloss.*` fields in your observation metadata. `read_decisions()` ingests them;
+`write_back(key_to_ref)` posts loss + error as Langfuse **scores** (`create_score`).
+`pip install "agentloss[langfuse]"`.
+
+## Braintrust (`agentloss.connectors.braintrust`) — built to docs, not yet live-verified
+
+`write_back(key_to_span, project=...)` posts loss/verdict as Braintrust **feedback**
+(`log_feedback`). Supply the `business_key -> span_id` map from your logging (Braintrust is
+log/BTQL-oriented, so reads are adapted per project). `pip install "agentloss[braintrust]"`.
+
+> **Verification status:** Phoenix is verified end-to-end against a live server. Langfuse and
+> Braintrust are built to their docs and need the same live-verification pass — expect small
+> API fixes on first real run (that's exactly what Phoenix needed). The pure mapping logic for
+> all three is offline-tested. Next: raw OTLP ingestion.

@@ -27,6 +27,8 @@ dependencies = []
 claude = ["anthropic>=0.40"]
 mcp = ["mcp>=1.0"]
 phoenix = ["arize-phoenix-client>=1.0", "pandas>=2.0"]
+langfuse = ["langfuse>=2.0"]
+braintrust = ["braintrust>=0.0.1"]
 
 [project.urls]
 Homepage = "https://agentloss.com"
