@@ -163,3 +163,25 @@ pre code { color: var(--code); font-size: 0.88rem; line-height: 1.55; }
   color: var(--muted);
 }
 .site-footer .fine { font-size: 0.85rem; margin-top: 0.5rem; }
+
+/* FAQ */
+.faq { max-width: var(--max); margin: 0 auto; padding: 2rem 1.5rem; }
+.faq h2 { margin-bottom: 1rem; }
+.faq details {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.85rem 1.1rem;
+  margin-bottom: 0.65rem;
+}
+.faq details[open] { background: var(--panel-2); }
+.faq summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  list-style: none;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::before { content: "+ "; color: var(--accent); font-weight: 700; }
+.faq details[open] summary::before { content: "– "; }
+.faq details p { color: var(--muted); margin: 0.7rem 0 0.2rem; }

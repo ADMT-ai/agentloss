@@ -78,24 +78,21 @@ def _dispute_target(dispute):
     return str(_get(dispute, "charge", "") or ""), _amount_usd(dispute)
 
 
-def outcomes_from_disputes(stripe, limit=100, source="dispute", census=False):
-    """Pull Stripe disputes and record each disputed charge as a gold wrong-decision outcome.
+def outcomes_from_disputes(stripe, limit=100, source="dispute", census=False,
+                           attributable_reasons=None, include_pending=False):
+    """Pull Stripe disputes and record each as a gold outcome — hardened via the chargeback detector
+    (`agentloss.detectors.stripe`): a WON dispute is NOT a loss, amounts are currency-correct (incl.
+    zero-decimal currencies), `attributable_reasons` gates agent-error attribution, pending disputes
+    are skipped (unless `include_pending`), and multiple records per charge are deduped.
 
-    census=False (default): Stripe disputes are typically an INCOMPLETE catch (not every fraud is
-    disputed, and disputes lag), so this records only the disputed charges (correct realized loss)
-    — pair with `agentloss.sample_and_verify()` for the rate. Set census=True only if disputes are
-    the complete set of errors, to also mark the rest correct and get the rate directly."""
-    from . import outcomes_from_reversals
-    listing = stripe.Dispute.list(limit=limit)
-    disputes = (listing.auto_paging_iter() if hasattr(listing, "auto_paging_iter")
-                else _get(listing, "data", listing))
-    reversed_keys, amounts = [], {}
-    for d in disputes:
-        charge, loss = _dispute_target(d)
-        if charge:
-            reversed_keys.append(charge)
-            amounts[charge] = loss
-    return outcomes_from_reversals(reversed_keys, amounts, source=source, census=census)
+    census=False (default): disputes are typically an INCOMPLETE catch (not every bad charge is
+    disputed, and they lag), so this records only resolved disputes — pair with
+    `agentloss.sample_and_verify()` for the rate. census=True marks every other captured decision
+    correct (only when disputes are the complete error set)."""
+    from ..detectors import stripe as detector
+    rows = detector.detect(stripe, limit=limit, source=source,
+                           attributable_reasons=attributable_reasons, include_pending=include_pending)
+    return detector.record(rows, census=census, source=source)
 
 
 def handle_webhook_event(event, source="dispute"):

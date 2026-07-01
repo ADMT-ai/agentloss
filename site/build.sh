@@ -26,7 +26,9 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # Static assets that make up the site.
-for f in index.html styles.css copy.js favicon.svg og.svg robots.txt sitemap.xml; do
+# The fd55...txt file is the IndexNow key (Bing/Yandex/DuckDuckGo instant indexing);
+# it must be served verbatim at the domain root — see build note below.
+for f in index.html styles.css copy.js favicon.svg og.svg robots.txt sitemap.xml fd55bf3236d6a56a011cc9041602c1c8.txt; do
   cp "$SCRIPT_DIR/$f" "$OUT/$f"
 done
 

@@ -89,4 +89,5 @@ derived metrics leave.
 
 - docs/SDK-SPEC.md — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.
 - docs/PACKS.md — packs (capture off a payment SDK / ERP / agent-tool / context layer) + how to write one.
+- docs/DETECTORS.md — outcome detectors (the SoR side): detect + measure a realized outcome, hardened + eval'd.
 - AGENTS.md — drop-in rule for coding agents.

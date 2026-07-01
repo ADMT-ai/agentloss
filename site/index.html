@@ -44,6 +44,45 @@
     "author": { "@type": "Organization", "name": "ADMT", "url": "https://admt.ai" }
   }
   </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "How do I measure what my AI agent's mistakes actually cost?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Instrument the consequential action with @agentloss.decision and record the per-decision exposure (value_at_risk_usd). When outcomes resolve — a correction, dispute, chargeback, or audit — call report_outcome (or join a whole table with record_outcomes). agentloss reports realized and expected dollar loss, not a quality-proxy score." }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I measure my AI agent's real-world error rate in production?",
+        "acceptedAnswer": { "@type": "Answer", "text": "agentloss computes the error rate by segment with confidence intervals, joining each production decision to the real resolved outcome — not an offline labeled eval set. If you don't have ground truth yet, sample_and_verify() produces a number with a verification agent, so you're never stuck at zero." }
+      },
+      {
+        "@type": "Question",
+        "name": "How is agentloss different from Braintrust, Langfuse, Arize, or eval tools?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Those score quality proxies — LLM-judge, hallucination rate, task completion. agentloss answers what the mistakes cost and whether the agent is safe enough to trust with more autonomy. It is OpenTelemetry / OpenInference-aligned, so it reads your existing traces and adds the loss layer on top rather than replacing your observability stack." }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I make my AI agent insurable or prove it is reliable enough for more autonomy?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Underwriting and autonomy decisions need the record agentloss produces: error rate with confidence intervals, realized dollar loss against real outcomes, and incremental risk vs. a baseline — the exact evidence an insurer's questionnaire (e.g. Munich Re aiSure) asks for and that eval scores can't supply." }
+      },
+      {
+        "@type": "Question",
+        "name": "I already have traces (Phoenix / OpenTelemetry). Do I re-instrument?",
+        "acceptedAnswer": { "@type": "Answer", "text": "No. Add a few agentloss.* attributes to the consequential span and point the connector at your spans (from agentloss.connectors import phoenix). agentloss adds the loss/outcome layer on top of what your tracer already emits." }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I instrument every LLM call?",
+        "acceptedAnswer": { "@type": "Answer", "text": "No — instrument only the consequential action: the handful of tool calls that move money or commit the business. That is where the cost lives and it keeps the integration a thin layer." }
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
   <header class="site-header">
@@ -161,6 +200,70 @@ for d in phoenix.read_decisions(project="ap-agent", endpoint="http://localhost:6
         <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/skills/instrument-agent-reliability/SKILL.md"><strong>Skill</strong></a> — the canonical instrumentation recipe.</li>
         <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/mcp/agentloss_mcp.py"><strong>MCP server</strong></a> — <code>how_to_instrument</code>, <code>explain_attribute</code>, <code>validate_integration</code>.</li>
       </ul>
+    </section>
+
+    <section id="faq" class="faq" aria-label="Frequently asked questions">
+      <h2>FAQ</h2>
+
+      <details open>
+        <summary>How do I measure what my AI agent's mistakes actually cost?</summary>
+        <p>
+          Instrument the consequential action with <code>@agentloss.decision</code> and record the
+          per-decision exposure (<code>value_at_risk_usd</code>). When outcomes resolve — a
+          correction, dispute, chargeback, or audit — call <code>report_outcome</code> (or join a
+          whole table with <code>record_outcomes</code>). agentloss reports realized and expected
+          <strong>dollar loss</strong>, not a quality proxy score.
+        </p>
+      </details>
+
+      <details>
+        <summary>How do I measure my AI agent's real-world error rate in production?</summary>
+        <p>
+          agentloss computes the false-approve (error) rate by segment with confidence intervals,
+          joining each production decision to the real resolved outcome — not an offline labeled
+          eval set. If you don't have ground truth yet, <code>sample_and_verify()</code> produces a
+          number with a verification agent, so you're never stuck at zero.
+        </p>
+      </details>
+
+      <details>
+        <summary>How is agentloss different from Braintrust, Langfuse, Arize, or eval tools?</summary>
+        <p>
+          Those score <em>quality proxies</em> — LLM-judge, hallucination rate, task completion.
+          agentloss answers the question they don't: <strong>what do the mistakes cost, and is the
+          agent safe enough to trust with more autonomy?</strong> It's OpenTelemetry /
+          OpenInference-aligned, so it reads your existing traces and adds the loss layer on top —
+          it doesn't replace your observability stack.
+        </p>
+      </details>
+
+      <details>
+        <summary>How do I make my AI agent insurable, or prove it's reliable enough for more autonomy?</summary>
+        <p>
+          Underwriting and autonomy decisions need the record that agentloss produces: error rate
+          with confidence intervals, realized dollar loss against real outcomes, and incremental
+          risk vs. a baseline — the exact evidence an insurer's questionnaire (e.g. Munich Re aiSure)
+          asks for and that eval scores can't supply.
+        </p>
+      </details>
+
+      <details>
+        <summary>I already have traces (Phoenix / OpenTelemetry). Do I re-instrument?</summary>
+        <p>
+          No. Add a few <code>agentloss.*</code> attributes to the consequential span and point the
+          connector at your spans — <code>from agentloss.connectors import phoenix</code>. agentloss
+          adds the loss/outcome layer on top of what your tracer already emits.
+        </p>
+      </details>
+
+      <details>
+        <summary>Do I instrument every LLM call?</summary>
+        <p>
+          No — instrument only the <strong>consequential action</strong>: the handful of tool calls
+          that move money or commit the business. That's where the cost lives, and it keeps the
+          integration a thin layer.
+        </p>
+      </details>
     </section>
   </main>
 

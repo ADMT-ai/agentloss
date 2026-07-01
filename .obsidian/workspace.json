@@ -185,17 +185,17 @@
   },
   "active": "3446cc35519d045f",
   "lastOpenFiles": [
-    "dist/agentloss-0.0.6-py3-none-any.whl",
-    "dist/agentloss-0.0.6.tar.gz",
-    "dist",
-    "agentloss/packs/__pycache__/tools.cpython-313.pyc",
-    "examples/tools_pack_test.py",
-    "agentloss/packs/tools.py",
-    "docs/PACKS.md",
-    "dist/agentloss-0.0.5-py3-none-any.whl",
-    "dist/agentloss-0.0.5.tar.gz",
-    "agentloss/packs/__pycache__/stripe.cpython-313.pyc",
-    "examples/stripe_pack_test.py",
-    "agentloss/packs/stripe.py"
+    "docs/DETECTORS.md",
+    "site/llms.txt",
+    "agentloss/detectors/__pycache__/stripe.cpython-313.pyc",
+    "agentloss/detectors/__pycache__/__init__.cpython-313.pyc",
+    "agentloss/detectors/__pycache__",
+    "site/public/fd55bf3236d6a56a011cc9041602c1c8.txt",
+    "examples/stripe_detector_eval.py",
+    "agentloss/detectors/stripe.py",
+    "site/fd55bf3236d6a56a011cc9041602c1c8.txt",
+    "agentloss/detectors/__init__.py",
+    "agentloss/detectors",
+    "docs/PACKS.md"
   ]
 }

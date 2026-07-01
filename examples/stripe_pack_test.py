@@ -49,7 +49,8 @@ def test_capture_and_disputes():
         cents = rng.randint(1000, 200000)            # $10–$2000
         ch = S.Charge.create(amount=cents, currency="usd", customer=f"cus_{i}")   # decision captured for free
         if rng.random() < 0.06:                      # 6% later disputed
-            S.Dispute.data.append({"id": f"dp_{i}", "charge": ch["id"], "amount": cents, "reason": "fraudulent"})
+            S.Dispute.data.append({"id": f"dp_{i}", "charge": ch["id"], "amount": cents,
+                                   "status": "lost", "currency": "usd", "reason": "fraudulent"})
             disputed_loss += cents / 100.0
 
     assert len(agentloss.STORE.decisions) == 300
