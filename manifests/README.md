@@ -13,7 +13,9 @@ agentloss gateway --manifest manifests/stripe-mcp.manifest.json -- npx -y @strip
 ## Don't see your server? Draft it in one command
 
 ```bash
-agentloss gateway init --out my.manifest.json -- <your server command>
+agentloss gateway init --out my.manifest.json -- <your server command>          # local
+agentloss gateway init --out my.manifest.json \
+    --url https://<hosted-server> --header "Authorization: Bearer ..."          # hosted
 ```
 
 `init` reads the server's own `tools/list`, classifies the money-movers and reversal reads with

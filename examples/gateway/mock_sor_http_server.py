@@ -67,6 +67,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port=0, seed=False):
+    sor.PAYMENTS.clear()  # each serve() is a fresh SoR, even within one process
     if seed:
         sor.seed()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)

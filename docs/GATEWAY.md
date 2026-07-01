@@ -130,6 +130,8 @@ packs ask: *which tool moves money?* and *which tool exposes the reversals?* `in
 
 ```bash
 agentloss gateway init --out my.manifest.json [--use-case slug] [--no-probe] -- <server command>
+agentloss gateway init --out my.manifest.json --url https://<hosted-server> \
+    --header "Authorization: Bearer ..."          # hosted servers: same probe, over HTTP
 ```
 
 It calls the downstream `tools/list`, classifies money-movers (committing verb + money noun, or
@@ -211,8 +213,9 @@ MCP. Both write the same shapes; both are honest about the denominator.
   of reversal reads; proven by `examples/gateway_init_eval.py`.
 - ~~**HTTP transport**~~ — ✅ shipped (0.0.14): `--url` + `--header` speak Streamable HTTP to
   remote/hosted servers; proven by `examples/gateway_http_eval.py` against a strict mock (session
-  enforcement + SSE responses). Still open: the server-opened GET/SSE channel, and `gateway init`
-  over `--url` (today init probes stdio servers only).
+  enforcement + SSE responses). `init --url` shipped in 0.0.15
+  (`examples/gateway_init_http_eval.py`: URL in, dollar-loss numbers out, zero hand-written
+  config). Still open: the server-opened GET/SSE channel.
 - **Manifests for real servers** — Stripe MCP draft shipped (`manifests/`); next: ERPNext/NetSuite
   MCP, GitHub (a merge is a commitment; a revert is a reversal). Each is a JSON file + an eval
   fixture, not a new pack.

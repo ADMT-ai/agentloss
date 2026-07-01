@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-__all__ = ["draft_manifest", "probe_tools", "main"]
+__all__ = ["draft_manifest", "probe_tools", "probe_tools_http", "main"]
 
 _READ_PREFIXES = ("list", "get", "search", "retrieve", "read", "lookup", "find", "fetch",
                   "describe", "query", "show")
@@ -126,6 +126,51 @@ def probe_tools(downstream, timeout=20):
         except Exception:
             proc.kill()
     caller.close = close
+    return tools, caller
+
+
+def probe_tools_http(url, headers=None, timeout=20):
+    """The HTTP twin of probe_tools: initialize + tools/list against a remote (Streamable
+    HTTP) MCP server, returning the same (tools, caller) contract. Rides HttpDownstream,
+    so session-id echo and SSE responses come for free."""
+    import threading
+
+    from .gateway_http import HttpDownstream
+
+    ds = HttpDownstream(url, headers=headers, timeout=timeout)
+    waiting = {}
+
+    def on_msg(msg, raw=None):
+        holder = waiting.pop(msg.get("id"), None) if isinstance(msg, dict) else None
+        if holder:
+            holder["msg"] = msg
+            holder["event"].set()
+    ds.start(on_msg)
+    n = [0]
+
+    def rpc(method, params):
+        n[0] += 1
+        rid = f"init-{n[0]}"
+        holder = {"event": threading.Event(), "msg": None}
+        waiting[rid] = holder
+        ds.send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        if not holder["event"].wait(timeout):
+            waiting.pop(rid, None)
+            raise TimeoutError(f"{method} timed out after {timeout}s")
+        msg = holder["msg"]
+        if msg.get("error"):
+            raise RuntimeError(f"{method}: {msg['error']}")
+        return msg["result"]
+
+    rpc("initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
+                       "clientInfo": {"name": "agentloss-init", "version": "0"}})
+    ds.send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+    tools = rpc("tools/list", {}).get("tools", [])
+
+    def caller(name, arguments=None):
+        return rpc("tools/call", {"name": name, "arguments": arguments or {}})
+
+    caller.close = ds.close
     return tools, caller
 
 
@@ -244,15 +289,19 @@ def draft_manifest(tools, use_case="gateway", call=None):
     return manifest
 
 
+_USAGE = ("usage: agentloss gateway init [--out m.json] [--use-case slug] [--no-probe] "
+          "(-- <server command...> | --url https://... [--header 'Name: value']...)")
+
+
 def main(argv):
-    """agentloss gateway init [--out m.json] [--use-case slug] [--no-probe] -- <command...>"""
-    if "--" not in argv:
-        print("usage: agentloss gateway init [--out m.json] [--use-case slug] [--no-probe] "
-              "-- <server command...>", file=sys.stderr)
-        return 2
-    split = argv.index("--")
-    opts, downstream = argv[:split], argv[split + 1:]
-    out, use_case, probe = None, "gateway", True
+    """agentloss gateway init [--out m.json] [--use-case slug] [--no-probe]
+    (-- <server command...> | --url https://... [--header 'Name: value']...)"""
+    if "--" in argv:
+        split = argv.index("--")
+        opts, downstream = argv[:split], argv[split + 1:]
+    else:
+        opts, downstream = argv, None
+    out, use_case, probe, url, headers = None, "gateway", True, None, {}
     i = 0
     while i < len(opts):
         if opts[i] == "--out":
@@ -261,14 +310,20 @@ def main(argv):
             use_case, i = opts[i + 1], i + 2
         elif opts[i] == "--no-probe":
             probe, i = False, i + 1
+        elif opts[i] == "--url":
+            url, i = opts[i + 1], i + 2
+        elif opts[i] == "--header":
+            name, _, value = opts[i + 1].partition(":")
+            headers[name.strip()] = value.strip()
+            i += 2
         else:
-            print(f"unknown option {opts[i]}", file=sys.stderr)
+            print(f"unknown option {opts[i]}\n{_USAGE}", file=sys.stderr)
             return 2
-    if not downstream:
-        print("no downstream server command after --", file=sys.stderr)
+    if not (bool(url) ^ bool(downstream)):
+        print(_USAGE, file=sys.stderr)
         return 2
 
-    tools, call = probe_tools(downstream)
+    tools, call = probe_tools_http(url, headers) if url else probe_tools(downstream)
     try:
         manifest = draft_manifest(tools, use_case=use_case, call=call if probe else None)
     finally:
