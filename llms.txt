@@ -77,6 +77,7 @@ If the agent reaches its system of record over MCP (a Stripe MCP server, an ERP 
 skip instrumentation entirely — run the agentloss gateway in front of that server:
 
     agentloss gateway --manifest m.json --store .agentloss/store.jsonl -- <server command>
+    agentloss gateway --manifest m.json --url https://<hosted-mcp-server> --header "Authorization: Bearer ..."
 
 A JSON manifest (a pack, as data) declares the consequential tools (paths to the amount and
 business key in `arguments`/`result`) and the reversal tool (`error_statuses`/`correct_statuses`

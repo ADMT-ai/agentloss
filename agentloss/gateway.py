@@ -2,7 +2,9 @@
 
 A transparent stdio MCP proxy you put in front of a system-of-record's MCP server:
 
-    agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...
+    agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...     # local (stdio)
+    agentloss gateway --manifest stripe.manifest.json --url https://mcp.stripe.com \
+        --header "Authorization: Bearer $KEY"                                          # remote (HTTP)
 
 A JSON **manifest** (a pack, as data) declares which downstream tools are consequential and
 where the exposure / join key live; every such `tools/call` through the proxy records a
@@ -13,9 +15,11 @@ into `tools/list`, so the agent reads its own error rate and dollar loss through
 connection it acts through. Decisions/outcomes are appended to a JSONL store (`--store`)
 for out-of-process readout (`agentloss report --store`).
 
-Zero dependencies: the stdio transport is newline-delimited JSON-RPC 2.0, relayed raw; only
-`tools/list` responses and `tools/call` request/response pairs are inspected. Instrumentation
-FAILS OPEN — a bad manifest path or unparsable result never blocks the business call.
+Zero dependencies: the agent side is stdio (newline-delimited JSON-RPC 2.0, relayed raw); the
+downstream side is either a spawned stdio server (`-- <command>`) or a remote Streamable-HTTP
+server (`--url`, stdlib urllib — see gateway_http.py). Only `tools/list` responses and
+`tools/call` request/response pairs are inspected. Instrumentation FAILS OPEN — a bad manifest
+path or unparsable result never blocks the business call.
 """
 import json
 import subprocess
@@ -27,7 +31,7 @@ from .doctor import validate_integration
 from .persist import DEFAULT_STORE_PATH, append_decision, append_outcome
 from .report import report
 
-__all__ = ["Manifest", "Gateway", "main"]
+__all__ = ["Manifest", "Gateway", "StdioDownstream", "main"]
 
 
 # ---------------------------------------------------------------- manifest
@@ -119,20 +123,54 @@ _AGENTLOSS_TOOLS = [
 ]
 
 
+# ---------------------------------------------------------------- downstreams
+
+class StdioDownstream:
+    """A spawned local MCP server; the original transport. send() writes its stdin, a pump
+    thread feeds its stdout lines to the gateway's on_msg callback."""
+
+    def __init__(self, argv):
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        self._lock = threading.Lock()
+
+    def start(self, on_msg):
+        def pump():
+            for line in iter(self.proc.stdout.readline, b""):
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    msg = None
+                on_msg(msg, line)
+        threading.Thread(target=pump, daemon=True).start()
+
+    def send(self, data):
+        raw = data if isinstance(data, bytes) else (json.dumps(data) + "\n").encode()
+        with self._lock:
+            self.proc.stdin.write(raw)
+            self.proc.stdin.flush()
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=5)
+        except Exception:
+            self.proc.kill()
+
+
 # ---------------------------------------------------------------- gateway
 
 class Gateway:
-    """Relays newline-delimited JSON-RPC between a client stream pair and a server stream
-    pair (binary file-likes), intercepting tools/list + tools/call per the manifest."""
+    """Relays JSON-RPC between a stdio client (binary file-likes) and a downstream — a
+    StdioDownstream or gateway_http.HttpDownstream — intercepting tools/list + tools/call
+    per the manifest."""
 
-    def __init__(self, manifest, client_in, client_out, server_in, server_out,
+    def __init__(self, manifest, client_in, client_out, downstream,
                  store_path=DEFAULT_STORE_PATH):
         self.m = manifest
         self.client_in, self.client_out = client_in, client_out
-        self.server_in, self.server_out = server_in, server_out
+        self.downstream = downstream
         self.store_path = store_path
         self._client_lock = threading.Lock()   # writes to client_out
-        self._server_lock = threading.Lock()   # writes to server_in
         self._pending_calls = {}               # request id -> (tool_name, arguments)
         self._pending_lists = set()            # request ids of client tools/list calls
         self._internal = {}                    # internal request id -> {event, result}
@@ -140,24 +178,20 @@ class Gateway:
 
     # ---- low-level I/O
 
-    def _write(self, stream, lock, msg):
-        data = msg if isinstance(msg, bytes) else (json.dumps(msg) + "\n").encode()
-        with lock:
-            stream.write(data)
-            stream.flush()
-
     def to_client(self, msg):
-        self._write(self.client_out, self._client_lock, msg)
+        data = msg if isinstance(msg, bytes) else (json.dumps(msg) + "\n").encode()
+        with self._client_lock:
+            self.client_out.write(data)
+            self.client_out.flush()
 
     def to_server(self, msg):
-        self._write(self.server_in, self._server_lock, msg)
+        self.downstream.send(msg)
 
     # ---- pumps
 
     def run(self):
         """Pump both directions; returns when the client closes its side."""
-        t = threading.Thread(target=self._pump_server, daemon=True)
-        t.start()
+        self.downstream.start(self._on_server_msg)
         for line in iter(self.client_in.readline, b""):
             self._on_client_line(line)
 
@@ -183,29 +217,25 @@ class Gateway:
             self._pending_lists.add(msg["id"])
         self.to_server(line)
 
-    def _pump_server(self):
-        for line in iter(self.server_out.readline, b""):
-            try:
-                msg = json.loads(line)
-            except ValueError:
-                msg = None
-            if not isinstance(msg, dict):
-                self.to_client(line)
-                continue
-            mid = msg.get("id")
-            if mid in self._internal:                       # our own downstream call
-                holder = self._internal.pop(mid)
-                holder["msg"] = msg
-                holder["event"].set()
-                continue
-            if "method" not in msg and mid in self._pending_calls:
-                self._record_decision(msg, *self._pending_calls.pop(mid))
-            if "method" not in msg and mid in self._pending_lists:
-                self._pending_lists.discard(mid)
-                msg = self._inject_tools(msg)
-                self.to_client(msg)
-                continue
-            self.to_client(line)
+    def _on_server_msg(self, msg, raw=None):
+        """One downstream message (from the stdio pump or an HTTP response body)."""
+        if not isinstance(msg, dict):
+            if raw is not None:
+                self.to_client(raw)
+            return
+        mid = msg.get("id")
+        if mid in self._internal:                       # our own downstream call
+            holder = self._internal.pop(mid)
+            holder["msg"] = msg
+            holder["event"].set()
+            return
+        if "method" not in msg and mid in self._pending_calls:
+            self._record_decision(msg, *self._pending_calls.pop(mid))
+        if "method" not in msg and mid in self._pending_lists:
+            self._pending_lists.discard(mid)
+            self.to_client(self._inject_tools(msg))
+            return
+        self.to_client(raw if raw is not None else msg)
 
     # ---- interception
 
@@ -345,46 +375,56 @@ class Gateway:
 
 # ---------------------------------------------------------------- entrypoint
 
+_USAGE = ("usage: agentloss gateway --manifest m.json [--store path] "
+          "(-- <command...> | --url https://... [--header 'Name: value']...)\n"
+          "       agentloss gateway init [--out m.json] -- <command...>")
+
+
 def main(argv=None):
     """agentloss gateway --manifest m.json [--store path] -- <downstream command...>
+    agentloss gateway --manifest m.json --url https://... [--header 'Authorization: ...']
     agentloss gateway init [--out m.json] -- <downstream command...>   (draft the manifest)"""
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["init"]:
         from .gateway_init import main as init_main
         return init_main(argv[1:])
-    if "--" not in argv:
-        print("usage: agentloss gateway --manifest m.json [--store path] -- <command...>",
-              file=sys.stderr)
-        return 2
-    split = argv.index("--")
-    opts, downstream = argv[:split], argv[split + 1:]
-    manifest_path, store_path = None, DEFAULT_STORE_PATH
+    if "--" in argv:
+        split = argv.index("--")
+        opts, command = argv[:split], argv[split + 1:]
+    else:
+        opts, command = argv, None
+    manifest_path, store_path, url, headers = None, DEFAULT_STORE_PATH, None, {}
     i = 0
     while i < len(opts):
         if opts[i] == "--manifest":
             manifest_path, i = opts[i + 1], i + 2
         elif opts[i] == "--store":
             store_path, i = opts[i + 1], i + 2
+        elif opts[i] == "--url":
+            url, i = opts[i + 1], i + 2
+        elif opts[i] == "--header":
+            name, _, value = opts[i + 1].partition(":")
+            headers[name.strip()] = value.strip()
+            i += 2
         else:
-            print(f"unknown option {opts[i]}", file=sys.stderr)
+            print(f"unknown option {opts[i]}\n{_USAGE}", file=sys.stderr)
             return 2
-    if not manifest_path or not downstream:
-        print("usage: agentloss gateway --manifest m.json [--store path] -- <command...>",
-              file=sys.stderr)
+    if not manifest_path or not (bool(url) ^ bool(command)):
+        print(_USAGE, file=sys.stderr)
         return 2
     manifest = Manifest.load(manifest_path)
-    proc = subprocess.Popen(downstream, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    gw = Gateway(manifest, sys.stdin.buffer, sys.stdout.buffer,
-                 proc.stdin, proc.stdout, store_path=store_path)
+    if url:
+        from .gateway_http import HttpDownstream
+        downstream = HttpDownstream(url, headers=headers)
+    else:
+        downstream = StdioDownstream(command)
+    gw = Gateway(manifest, sys.stdin.buffer, sys.stdout.buffer, downstream,
+                 store_path=store_path)
     try:
         gw.run()
     finally:
-        try:
-            proc.stdin.close()
-        except Exception:
-            pass
-        proc.wait(timeout=5)
-    return proc.returncode or 0
+        downstream.close()
+    return 0
 
 
 if __name__ == "__main__":

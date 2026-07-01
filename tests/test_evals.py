@@ -15,6 +15,7 @@ EVALS = [
     "examples/calibration_eval.py",
     "examples/gateway_eval.py",
     "examples/gateway_init_eval.py",
+    "examples/gateway_http_eval.py",
     "examples/verifier_offline_test.py",
     "examples/connectors_offline_test.py",
     "examples/phoenix_offline_test.py",

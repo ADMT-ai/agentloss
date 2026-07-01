@@ -86,12 +86,16 @@ def handle(msg):
     return None
 
 
+def seed():
+    """Pre-existing SoR history, so `gateway init --probe` sees real dispute rows."""
+    for cust, amount in [("legacy-a", 80.0), ("legacy-fraud", 250.0),
+                         ("legacy-won", 40.0), ("legacy-pending", 66.0)]:
+        PAYMENTS.append((f"pay_seed_{len(PAYMENTS) + 1}", amount, "USD", cust))
+
+
 def main():
     if "--seed" in sys.argv:
-        # pre-existing SoR history, so `gateway init --probe` sees real dispute rows
-        for cust, amount in [("legacy-a", 80.0), ("legacy-fraud", 250.0),
-                             ("legacy-won", 40.0), ("legacy-pending", 66.0)]:
-            PAYMENTS.append((f"pay_seed_{len(PAYMENTS) + 1}", amount, "USD", cust))
+        seed()
     for line in sys.stdin.buffer:
         try:
             msg = json.loads(line)

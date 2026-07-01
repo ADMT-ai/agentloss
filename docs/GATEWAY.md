@@ -48,6 +48,10 @@ rate, dollar loss, and doctor findings **through the same connection it acts thr
 # instead of:                stripe-mcp --api-key ...
 # run:
 agentloss gateway --manifest stripe.manifest.json --store .agentloss/store.jsonl -- stripe-mcp --api-key ...
+
+# or, for a REMOTE (hosted) MCP server — Streamable HTTP, auth via headers:
+agentloss gateway --manifest stripe.manifest.json \
+    --url https://mcp.stripe.com --header "Authorization: Bearer $STRIPE_KEY"
 ```
 
 Or in an MCP client config (Claude Code / Claude Desktop / any MCP host):
@@ -158,6 +162,13 @@ to the 90% case and hand the rest to a detector.
   proxy relays bytes and inspects only three message shapes (`tools/list` responses, `tools/call`
   requests/responses). No `mcp` package required, nothing to version-chase, and the same code is
   testable with pipes.
+- **Two downstream transports, one interception.** The agent side is always stdio; the downstream
+  is either a spawned local server (`-- <command>`) or a remote Streamable-HTTP server (`--url`,
+  stdlib urllib): POST per message, `application/json` and `text/event-stream` responses both
+  parsed, `Mcp-Session-Id` captured from initialize and echoed thereafter, negotiated
+  `MCP-Protocol-Version` sent once known, auth via repeatable `--header`. A transport failure
+  surfaces to the agent as a JSON-RPC error response — never a fabricated business result. (The
+  optional server-opened GET/SSE channel for server-initiated requests is not yet spoken.)
 - **Fail open.** Instrumentation must never break the business call: malformed manifest paths,
   unparsable results, store write failures — the message is still relayed, the decision is just
   not captured (and `agentloss_doctor` will say so). Same rule as `packs.capture`.
@@ -198,9 +209,12 @@ MCP. Both write the same shapes; both are honest about the denominator.
 
 - ~~**`agentloss gateway init`**~~ — ✅ shipped (0.0.13): heuristic classification + safe probing
   of reversal reads; proven by `examples/gateway_init_eval.py`.
+- ~~**HTTP transport**~~ — ✅ shipped (0.0.14): `--url` + `--header` speak Streamable HTTP to
+  remote/hosted servers; proven by `examples/gateway_http_eval.py` against a strict mock (session
+  enforcement + SSE responses). Still open: the server-opened GET/SSE channel, and `gateway init`
+  over `--url` (today init probes stdio servers only).
 - **Manifests for real servers** — Stripe MCP draft shipped (`manifests/`); next: ERPNext/NetSuite
   MCP, GitHub (a merge is a commitment; a revert is a reversal). Each is a JSON file + an eval
   fixture, not a new pack.
-- **HTTP/SSE transport** — same interception, second transport, for remote MCP servers.
 - **Soft outcomes** — a reversal tool whose rows need reasoning (`detectors.reasoning`) instead of
   a status enum; feeds the existing sampling + calibration for an honest number.

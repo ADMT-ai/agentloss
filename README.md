@@ -71,7 +71,9 @@ MCP server), don't instrument code — put the agentloss gateway in front of tha
 config change, any agent runtime (not only Python):
 
 ```bash
-agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...
+agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...          # local
+agentloss gateway --manifest stripe.manifest.json \
+    --url https://mcp.stripe.com --header "Authorization: Bearer $KEY"                 # hosted
 ```
 
 A JSON **manifest** (a pack, as data) declares which tools are consequential and where the
