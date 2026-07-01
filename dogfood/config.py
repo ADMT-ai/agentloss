@@ -8,8 +8,8 @@ class Config:
 
     # --- population ---
     n_vendors: int = 40
-    # keep small for real-API runs (agent makes one call PER invoice). Override with AILOSS_N_INVOICES.
-    n_invoices: int = field(default_factory=lambda: int(os.environ.get("AILOSS_N_INVOICES", "4000")))
+    # keep small for real-API runs (agent makes one call PER invoice). Override with AGENTLOSS_N_INVOICES.
+    n_invoices: int = field(default_factory=lambda: int(os.environ.get("AGENTLOSS_N_INVOICES", "4000")))
 
     # --- injected error rates (fraction of the raw stream) ---
     # calibrated so residual escapes land near the ~0.1-0.3% recovery-audit prior
@@ -25,8 +25,8 @@ class Config:
     price_tolerance: float = 0.02
 
     # --- sampling (target-n probability-proportional-to-size) ---
-    # verifier BUDGET: expected # of adjudications (the dial). Override with AILOSS_TARGET_N.
-    sample_target_n: int = field(default_factory=lambda: int(os.environ.get("AILOSS_TARGET_N", "600")))
+    # verifier BUDGET: expected # of adjudications (the dial). Override with AGENTLOSS_TARGET_N.
+    sample_target_n: int = field(default_factory=lambda: int(os.environ.get("AGENTLOSS_TARGET_N", "600")))
     sample_floor: float = 0.02   # min inclusion prob so small items still cover the rate
 
     # --- outcome simulation ---
@@ -34,18 +34,18 @@ class Config:
     recovery_fraction: float = 0.4      # fraction of caught loss clawed back
 
     # --- verifier fallibility (simulate a real, imperfect verifier; 0 = perfect mock) ---
-    verifier_fp_rate: float = field(default_factory=lambda: float(os.environ.get("AILOSS_VFP", "0.0")))
-    verifier_fn_rate: float = field(default_factory=lambda: float(os.environ.get("AILOSS_VFN", "0.0")))
+    verifier_fp_rate: float = field(default_factory=lambda: float(os.environ.get("AGENTLOSS_VFP", "0.0")))
+    verifier_fn_rate: float = field(default_factory=lambda: float(os.environ.get("AGENTLOSS_VFN", "0.0")))
 
     # --- calibration (two-phase gold: confirm every flag + spot-check q of approvals) ---
-    cal_negative_sample_rate: float = field(default_factory=lambda: float(os.environ.get("AILOSS_CAL_Q", "0.15")))
+    cal_negative_sample_rate: float = field(default_factory=lambda: float(os.environ.get("AGENTLOSS_CAL_Q", "0.15")))
 
     # --- llm (agent and verifier can differ; verifier is what calibration measures) ---
-    llm_mode: str = field(default_factory=lambda: os.environ.get("AILOSS_LLM", "mock"))
+    llm_mode: str = field(default_factory=lambda: os.environ.get("AGENTLOSS_LLM", "mock"))
     agent_llm_mode: str = field(default_factory=lambda: os.environ.get(
-        "AILOSS_AGENT_LLM", os.environ.get("AILOSS_LLM", "mock")))
+        "AGENTLOSS_AGENT_LLM", os.environ.get("AGENTLOSS_LLM", "mock")))
     verifier_llm_mode: str = field(default_factory=lambda: os.environ.get(
-        "AILOSS_VERIFIER_LLM", os.environ.get("AILOSS_LLM", "mock")))
+        "AGENTLOSS_VERIFIER_LLM", os.environ.get("AGENTLOSS_LLM", "mock")))
 
 
 AMOUNT_BANDS = ((0, 5000), (5000, 25000), (25000, 10**12))

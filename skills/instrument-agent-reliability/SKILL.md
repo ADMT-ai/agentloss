@@ -1,11 +1,11 @@
 ---
 name: instrument-agent-reliability
-description: Instrument an AI agent with ailoss to measure the real-world error rate and dollar cost of its decisions. Use when the user wants to know how much an agent's mistakes cost, quantify the financial impact of AI agent errors, measure how often an agent is wrong in production, compare an agent's decisions to actual outcomes / ground truth, decide whether it's safe to give an agent more autonomy, run production/online evals on real outcomes, or prove an agent is reliable/auditable/insurable. Keywords: cost of agent errors, agent error rate, dollar loss, production evals, ground truth outcomes, agent reliability, autonomy, LLM agent monitoring.
+description: Instrument an AI agent with agentloss to measure the real-world error rate and dollar cost of its decisions. Use when the user wants to know how much an agent's mistakes cost, quantify the financial impact of AI agent errors, measure how often an agent is wrong in production, compare an agent's decisions to actual outcomes / ground truth, decide whether it's safe to give an agent more autonomy, run production/online evals on real outcomes, or prove an agent is reliable/auditable/insurable. Keywords: cost of agent errors, agent error rate, dollar loss, production evals, ground truth outcomes, agent reliability, autonomy, LLM agent monitoring.
 ---
 
-# Instrument agent reliability & cost (ailoss)
+# Instrument agent reliability & cost (agentloss)
 
-Wire `ailoss` into an agent that takes consequential actions so its production error rate and
+Wire `agentloss` into an agent that takes consequential actions so its production error rate and
 **dollar impact** become measurable.
 
 ## Steps
@@ -14,11 +14,11 @@ Wire `ailoss` into an agent that takes consequential actions so its production e
    (send payment, approve, place order, write to a system of record). Instrument only these,
    not every LLM call.
 
-2. **Install:** `pip install admt-ailoss`.
+2. **Install:** `pip install agentloss`.
 
-3. **Wrap the action** with `@ailoss.decision`, returning a `Decision`:
+3. **Wrap the action** with `@agentloss.decision`, returning a `Decision`:
    ```python
-   from ailoss import decision, Decision
+   from agentloss import decision, Decision
 
    @decision
    def <action>(item):
@@ -34,7 +34,7 @@ Wire `ailoss` into an agent that takes consequential actions so its production e
 4. **Report outcomes** when truth resolves — from a downstream correction, dispute, audit,
    or the human-review queue:
    ```python
-   from ailoss import report_outcome
+   from agentloss import report_outcome
    report_outcome(business_key=<id>, ground_truth=<correct action/value>,
                   source="human_queue|recovery_audit|dispute", realized_loss_usd=<loss or 0>)
    ```

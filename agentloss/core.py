@@ -1,4 +1,4 @@
-"""Core: decision capture + outcome store. Mirrors the `ailoss.*` decision/outcome
+"""Core: decision capture + outcome store. Mirrors the `agentloss.*` decision/outcome
 shapes from docs/SDK-SPEC.md (here as plain objects instead of OTel spans)."""
 import itertools
 from dataclasses import dataclass, field

@@ -3,9 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# Distribution name is admt-ailoss (PyPI typosquat guard blocks bare "ailoss");
-# the import package stays `ailoss` (see [tool.setuptools] packages below).
-name = "admt-ailoss"
+name = "agentloss"
 version = "0.0.1"
 description = "Measure the real-world error rate and dollar cost of an AI agent's decisions. OpenTelemetry-native."
 readme = "README.md"
@@ -31,7 +29,7 @@ mcp = ["mcp>=1.0"]
 
 [project.urls]
 Homepage = "https://admt.ai"
-Repository = "https://github.com/ADMT-ai/ailoss"
+Repository = "https://github.com/ADMT-ai/agentloss"
 
 [tool.setuptools]
-packages = ["ailoss"]
+packages = ["agentloss"]

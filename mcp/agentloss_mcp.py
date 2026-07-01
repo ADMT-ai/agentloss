@@ -1,17 +1,17 @@
-"""ailoss MCP server (stub).
+"""agentloss MCP server (stub).
 
 Exposes tools a coding agent calls WHILE wiring the SDK, so the correct integration is
 retrievable at generation time instead of guessed. Run:
 
     pip install mcp
-    python mcp/ailoss_mcp.py
+    python mcp/agentloss_mcp.py
 """
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError:  # keep the file importable without the dep
     raise SystemExit("Install the MCP SDK first: pip install mcp")
 
-mcp = FastMCP("ailoss")
+mcp = FastMCP("agentloss")
 
 _ATTRS = {
     "value_at_risk_usd": "Financial exposure of THIS single action (e.g. the invoice amount). "
@@ -31,7 +31,7 @@ def how_to_instrument(framework: str = "python") -> str:
     return (
         "Instrument ONLY the consequential action (the tool call that moves money or commits "
         "the business).\n\n"
-        "from ailoss import decision, report_outcome, Decision\n\n"
+        "from agentloss import decision, report_outcome, Decision\n\n"
         "@decision\n"
         "def approve_payment(invoice):\n"
         "    action = run_matching(invoice)   # 'approve'|'hold'|'reject'\n"
@@ -45,7 +45,7 @@ def how_to_instrument(framework: str = "python") -> str:
 
 @mcp.tool()
 def explain_attribute(name: str) -> str:
-    """Explain an ailoss.* / Decision attribute."""
+    """Explain an agentloss.* / Decision attribute."""
     return _ATTRS.get(name, f"Unknown attribute '{name}'. Known: {', '.join(_ATTRS)}")
 
 

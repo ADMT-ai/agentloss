@@ -1,12 +1,12 @@
-# ailoss
+# agentloss
 
-**Your eval tool tells you your AI agent's hallucination rate. `ailoss` tells you what it
+**Your eval tool tells you your AI agent's hallucination rate. `agentloss` tells you what it
 costs.** An OpenTelemetry-native SDK that measures the real-world **error rate and dollar
 loss** of an AI agent's decisions — by capturing its consequential actions in-process and
 joining them to ground truth (real resolved outcomes, not an offline labeled set).
 
 Every eval/observability tool scores *quality proxies* — LLM-judge, hallucination rate, task
-completion. `ailoss` answers the question the market keeps asking and no tool measures:
+completion. `agentloss` answers the question the market keeps asking and no tool measures:
 *what are my agent's mistakes costing, and is it safe to trust with more autonomy?*
 
 > Part of **ADMT** (Automated Decision-Making Technology) — [admt.ai](https://admt.ai).
@@ -14,7 +14,7 @@ completion. `ailoss` answers the question the market keeps asking and no tool me
 ## Install
 
 ```bash
-pip install admt-ailoss     # distribution name; you still `import ailoss`
+pip install agentloss
 ```
 
 ## Quickstart
@@ -23,7 +23,7 @@ Instrument only the **consequential action** — the tool call that moves money 
 business — not every LLM call.
 
 ```python
-from ailoss import decision, report_outcome, Decision
+from agentloss import decision, report_outcome, Decision
 
 @decision
 def approve_payment(invoice):
@@ -50,24 +50,24 @@ boundary; only derived metrics leave.
 - **Honest statistics.** Monetary-unit sampling with a target verifier budget; two-phase
   calibration corrects a fallible verifier's bias back to truth (with confidence intervals).
 
-See [`docs/SDK-SPEC.md`](docs/SDK-SPEC.md) for the full API, `ailoss.*` semantic conventions,
+See [`docs/SDK-SPEC.md`](docs/SDK-SPEC.md) for the full API, `agentloss.*` semantic conventions,
 and the pack/adapter model.
 
 ## Try the demo
 
 An oracle-validated harness that seeds an accounts-payable environment with *known* errors and
-checks that `ailoss` recovers the true error rate and dollar loss:
+checks that `agentloss` recovers the true error rate and dollar loss:
 
 ```bash
 python -m dogfood.run                                  # deterministic mock, no deps
-AILOSS_VERIFIER_LLM=claude ANTHROPIC_API_KEY=... python -m dogfood.run
+AGENTLOSS_VERIFIER_LLM=claude ANTHROPIC_API_KEY=... python -m dogfood.run
 ```
 
 ## For AI coding agents
 
-`ailoss` is built to be discovered and wired by coding agents:
+`agentloss` is built to be discovered and wired by coding agents:
 [`llms.txt`](llms.txt), the [`instrument-agent-reliability`](skills/instrument-agent-reliability/SKILL.md)
-skill, the [`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/ailoss_mcp.py)
+skill, the [`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/agentloss_mcp.py)
 (`how_to_instrument`, `explain_attribute`, `validate_integration`).
 
 ## License

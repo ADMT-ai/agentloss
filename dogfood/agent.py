@@ -1,8 +1,8 @@
 """The AP agent under test. Deliberately imperfect: exact-match dedup within a 90-day
 window, PO-price checks (not contract-price), receipt-based qty checks, and a crude
-new-vendor heuristic that occasionally false-blocks. Instrumented with @ailoss.decision.
+new-vendor heuristic that occasionally false-blocks. Instrumented with @agentloss.decision.
 """
-import ailoss
+import agentloss
 
 
 def gather_evidence(inv, erp, cfg):
@@ -36,9 +36,9 @@ def gather_evidence(inv, erp, cfg):
     }
 
 
-@ailoss.decision
+@agentloss.decision
 def _decide(inv, action, cfg):
-    return ailoss.Decision(
+    return agentloss.Decision(
         action=action,
         value_at_risk_usd=inv["amount"],
         business_key=inv["invoice_no"],

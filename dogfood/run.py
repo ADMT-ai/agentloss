@@ -3,17 +3,17 @@
   seed → run agent → outcome feeds (human queue + delayed audit) → sample+verify → score
 
     python -m dogfood.run
-    AILOSS_LLM=claude ANTHROPIC_API_KEY=sk-... python -m dogfood.run
+    AGENTLOSS_LLM=claude ANTHROPIC_API_KEY=sk-... python -m dogfood.run
 """
 import os
 from random import Random
 
-import ailoss
+import agentloss
 from .config import Config
 from .seeder import build
 from .llm import get_llm
 from . import agent, outcomes, eval as evalmod
-from ailoss import verifier as vmod
+from agentloss import verifier as vmod
 
 
 def _load_dotenv():
@@ -38,8 +38,8 @@ def _load_dotenv():
 def main():
     _load_dotenv()
     cfg = Config()
-    ailoss.STORE.decisions.clear()
-    ailoss.STORE.outcomes.clear()
+    agentloss.STORE.decisions.clear()
+    agentloss.STORE.outcomes.clear()
 
     erp, stream, oracle = build(cfg)
     invoices_by_no = {inv["invoice_no"]: inv for inv in stream}
@@ -59,7 +59,7 @@ def main():
 
     # 3) active sampling + verification (Tier A silver on the rest)
     verify_fn = vmod.make_fallible(vmod.make_verifier(verify_llm), cfg)   # simulate verifier errors if knobs>0
-    from ailoss import sampler, calibration
+    from agentloss import sampler, calibration
     n_sampled = sampler.run(invoices_by_no, erp, cfg, Random(cfg.seed + 2), verify_fn)
     print(f"[dogfood] sampled+verified {n_sampled} decisions")
 

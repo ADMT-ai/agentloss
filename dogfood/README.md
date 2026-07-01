@@ -1,11 +1,11 @@
-# ailoss dogfood harness
+# agentloss dogfood harness
 
 Dogfooding a **measurement instrument** requires a **known-truth oracle**: an
-environment where *we* planted the errors, so we can check that ailoss recovers
+environment where *we* planted the errors, so we can check that agentloss recovers
 the true error rate and dollars. This harness is that environment.
 
 ```
-seeder ─▶ ERP (sim) ─▶ AP agent (imperfect) ─▶ ailoss (sample+verify+measure)
+seeder ─▶ ERP (sim) ─▶ AP agent (imperfect) ─▶ agentloss (sample+verify+measure)
                                                         │
                                               eval scorecard vs oracle
 ```
@@ -19,8 +19,8 @@ seeder ─▶ ERP (sim) ─▶ AP agent (imperfect) ─▶ ailoss (sample+verify
   the agent uses (exact-match dup within 90d, PO price) and a *thorough* surface the
   verifier uses (fuzzy dup over all history, contract price, vendor risk).
 - **`agent.py`** — the AP agent under test. Deliberately imperfect so it makes realistic
-  residual errors. Instrumented with `@ailoss.decision`.
-- **`ailoss/`** — the SDK being dogfooded: `core` (decision capture + outcomes),
+  residual errors. Instrumented with `@agentloss.decision`.
+- **`agentloss/`** — the SDK being dogfooded: `core` (decision capture + outcomes),
   `sampler` (stratified + importance sampling with Horvitz–Thompson reweighting),
   `verifier` (re-adjudicates with the thorough ERP surface), `metrics` (Wilson CI,
   false-approve rate, expected/realized loss).
@@ -36,7 +36,7 @@ seeder ─▶ ERP (sim) ─▶ AP agent (imperfect) ─▶ ailoss (sample+verify
 ```bash
 # from repo root
 python -m dogfood.run                 # mock LLM, deterministic, no deps
-AILOSS_LLM=claude ANTHROPIC_API_KEY=sk-... python -m dogfood.run   # real Claude
+AGENTLOSS_LLM=claude ANTHROPIC_API_KEY=sk-... python -m dogfood.run   # real Claude
 ```
 
 ## Realism ladder

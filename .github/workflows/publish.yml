@@ -1,6 +1,6 @@
 name: publish
 
-# Publishes the `ailoss` package to PyPI when a GitHub Release is published.
+# Publishes the `agentloss` package to PyPI when a GitHub Release is published.
 # Uses PyPI Trusted Publishing (OIDC) — no API token to store. Configure a trusted
 # publisher for the project at https://pypi.org/manage/account/publishing/ first.
 

@@ -1,6 +1,6 @@
-# ailoss SDK Spec — Agent-Adoptable Reliability Instrumentation
+# agentloss SDK Spec — Agent-Adoptable Reliability Instrumentation
 
-_Working name: **ailoss** (placeholder). OTel namespace: `ailoss.*`._
+_Working name: **agentloss** (placeholder). OTel namespace: `agentloss.*`._
 _Last updated 2026-06-30._
 
 ## What it is
@@ -16,7 +16,7 @@ data pooling, and downstream commercial layers.
 ## Design principles (agent-first)
 
 1. **Standard-aligned = discoverable.** Built on OpenTelemetry + OpenInference;
-   `ailoss.*` semantic conventions (candidate for upstreaming). An agent reaching for
+   `agentloss.*` semantic conventions (candidate for upstreaming). An agent reaching for
    "the standard way to instrument an agent" lands on us.
 2. **Shortest correct path.** One import, one decorator, sane defaults. Correct usage
    is the _fewest tokens_, because agents minimize steps and error surface.
@@ -39,7 +39,7 @@ a product and a consulting shop):
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ CORE (invariant, built once)                                │
-│   OTel/OpenInference emission · ailoss.* schema · the join  │
+│   OTel/OpenInference emission · agentloss.* schema · the join  │
 │   sampling + reweighting · stats/CIs · calibration runtime  │
 │   verifier runtime · doctor · in-VPC processing             │
 ├────────────────────────────────────────────────────────────┤
@@ -53,7 +53,7 @@ a product and a consulting shop):
 └────────────────────────────────────────────────────────────┘
 ```
 
-Everything a pack or adapter produces normalizes **into `ailoss.*`** — which is what
+Everything a pack or adapter produces normalizes **into `agentloss.*`** — which is what
 makes heterogeneous verticals commensurable and lets downstream aggregation span verticals.
 Discipline that keeps it a product, not services: **the verifier reads the customer's
 policy, packs standardize the vertical, agents write the glue.** If you're hand-coding
@@ -64,14 +64,14 @@ bespoke verification per customer, pull it up into the pack or down into an adap
 Shortest-correct-path, illustrated on the AP beachhead:
 
 ```python
-from ailoss import instrument, decision, Decision
+from agentloss import instrument, decision, Decision
 
 # 1) One line. Auto-instruments the agent framework via OpenInference,
-#    installs the OTel tracer + the ailoss span processor. Loads the pack + adapter.
+#    installs the OTel tracer + the agentloss span processor. Loads the pack + adapter.
 instrument(service="ap-agent", pack="ap", adapter="adapters/acme.yaml")
 
 # 2) Wrap the consequential action. The return value carries the moat attributes;
-#    the SDK stamps ailoss.* onto the active span and records the join key.
+#    the SDK stamps agentloss.* onto the active span and records the join key.
 @decision(use_case="ap_3way_match")
 def approve_payment(invoice) -> Decision:
     result = run_matching(invoice)          # existing agent logic
@@ -86,7 +86,7 @@ def approve_payment(invoice) -> Decision:
 **Outcome reporting** (async; wired by the adapter, or called directly):
 
 ```python
-from ailoss import report_outcome
+from agentloss import report_outcome
 
 report_outcome(
     business_key="INV-88231",
@@ -97,7 +97,7 @@ report_outcome(
 )
 ```
 
-## `ailoss.*` semantic conventions
+## `agentloss.*` semantic conventions
 
 Layered on OTel GenAI / OpenInference spans. Grouped; each is a candidate upstream
 contribution.
@@ -105,40 +105,40 @@ contribution.
 | Attribute | Type | Example | Notes |
 |---|---|---|---|
 | **Correlation & integrity** | | | |
-| `ailoss.decision_id` | string | `d_88231` | stable id |
-| `ailoss.business_key` | string | `INV-88231` | natural join key for outcomes |
-| `ailoss.use_case_id` | string | `ap_3way_match` | segmentation |
-| `ailoss.attestation` | string | `sha256:…` | tamper-evident signed digest |
+| `agentloss.decision_id` | string | `d_88231` | stable id |
+| `agentloss.business_key` | string | `INV-88231` | natural join key for outcomes |
+| `agentloss.use_case_id` | string | `ap_3way_match` | segmentation |
+| `agentloss.attestation` | string | `sha256:…` | tamper-evident signed digest |
 | **Action & envelope (ODD)** | | | |
-| `ailoss.action` | string | `approve` | the decision |
-| `ailoss.action.value_at_risk_usd` | double | `14200` | per-decision exposure |
-| `ailoss.action.reversible` | bool | `false` | rollback possible? |
-| `ailoss.autonomy.level` | string | `autonomous` | autonomous/approved/advisory |
-| `ailoss.autonomy.human_override` | string | `none` | override + direction |
-| `ailoss.odd.envelope_id` | string | `ap_v3` | declared operating envelope |
-| `ailoss.odd.in_envelope` | bool | `true` | in-domain? out ⇒ excluded |
-| `ailoss.expected_behavior` | string | `block if duplicate per AP-SOP-12` | the "ground rules"; verifier spec |
-| `ailoss.guardrail.triggered` | bool | `false` | guardrail fired? |
+| `agentloss.action` | string | `approve` | the decision |
+| `agentloss.action.value_at_risk_usd` | double | `14200` | per-decision exposure |
+| `agentloss.action.reversible` | bool | `false` | rollback possible? |
+| `agentloss.autonomy.level` | string | `autonomous` | autonomous/approved/advisory |
+| `agentloss.autonomy.human_override` | string | `none` | override + direction |
+| `agentloss.odd.envelope_id` | string | `ap_v3` | declared operating envelope |
+| `agentloss.odd.in_envelope` | bool | `true` | in-domain? out ⇒ excluded |
+| `agentloss.expected_behavior` | string | `block if duplicate per AP-SOP-12` | the "ground rules"; verifier spec |
+| `agentloss.guardrail.triggered` | bool | `false` | guardrail fired? |
 | **Outcome (ground truth)** | | | |
-| `ailoss.gt.value` | string | `duplicate-should-block` | resolved truth |
-| `ailoss.gt.source` | string | `recovery_audit` | how determined |
-| `ailoss.gt.fidelity` | string | `gold` | gold (human/realized) vs silver (verifier) |
-| `ailoss.gt.confidence` | double | `0.92` | verifier confidence (silver) |
-| `ailoss.gt.resolved_at` | int (ns) | | timestamp |
+| `agentloss.gt.value` | string | `duplicate-should-block` | resolved truth |
+| `agentloss.gt.source` | string | `recovery_audit` | how determined |
+| `agentloss.gt.fidelity` | string | `gold` | gold (human/realized) vs silver (verifier) |
+| `agentloss.gt.confidence` | double | `0.92` | verifier confidence (silver) |
+| `agentloss.gt.resolved_at` | int (ns) | | timestamp |
 | **Loss** | | | |
-| `ailoss.loss.type` | string | `duplicate_payment` | pack taxonomy |
-| `ailoss.loss.amount_usd` | double | `14200` | realized |
-| `ailoss.loss.recovery_usd` | double | `0` | clawback |
-| `ailoss.loss.expected_usd` | double | | modeled (silver) pre-resolution |
-| `ailoss.loss.counterfactual` | bool | `true` | attributable to the agent? |
+| `agentloss.loss.type` | string | `duplicate_payment` | pack taxonomy |
+| `agentloss.loss.amount_usd` | double | `14200` | realized |
+| `agentloss.loss.recovery_usd` | double | `0` | clawback |
+| `agentloss.loss.expected_usd` | double | | modeled (silver) pre-resolution |
+| `agentloss.loss.counterfactual` | bool | `true` | attributable to the agent? |
 | **Provenance (accumulation)** | | | |
-| `ailoss.model.foundation` | string | `claude-opus-4-x` | base model |
-| `ailoss.model.adaptation` | string | `finetune+rag` | none/prompt/rag/finetune |
-| `ailoss.model.adaptation_id` | string | `v2026Q2` | tuned-system version |
-| `ailoss.retrieval.corpus_id` | string | `vendor_master_2026Q2` | RAG source |
+| `agentloss.model.foundation` | string | `claude-opus-4-x` | base model |
+| `agentloss.model.adaptation` | string | `finetune+rag` | none/prompt/rag/finetune |
+| `agentloss.model.adaptation_id` | string | `v2026Q2` | tuned-system version |
+| `agentloss.retrieval.corpus_id` | string | `vendor_master_2026Q2` | RAG source |
 | **Baseline (benchmark)** | | | |
-| `ailoss.baseline.value` | string | | shadow base-model output |
-| `ailoss.baseline.correct` | bool | `false` | baseline right where tuned wrong? |
+| `agentloss.baseline.value` | string | | shadow base-model output |
+| `agentloss.baseline.correct` | bool | `false` | baseline right where tuned wrong? |
 
 ## Use-case packs
 
@@ -277,7 +277,7 @@ adjudication is not hand-coded per customer.
 
 ## Self-validation contract
 
-`ailoss doctor --json` — the machine-readable check a coding agent runs to confirm
+`agentloss doctor --json` — the machine-readable check a coding agent runs to confirm
 integration:
 
 ```json
@@ -308,9 +308,9 @@ integration:
 
 ```
 Invoice ─▶ [ agent + @decision ]──tool calls──▶ ERP, payment rail
-                 │  in-process: stamp ailoss.* + business_key, emit signed span
+                 │  in-process: stamp agentloss.* + business_key, emit signed span
                  ▼
-        ailoss processor (in customer VPC)
+        agentloss processor (in customer VPC)
           normalize → sign → redact → sample+verify → compute metrics
                  │                         │
    outcomes ─────┤                         ├─▶ LOCAL dashboard/JSON (no account)
@@ -325,7 +325,7 @@ installed (agent writes code)      ← agent, near-zero friction
    ↓  local-first: full value, we receive NOTHING (correct)
 locally valuable (dev sees metrics)
    ↓  ACTIVATION GATE — human-ratified
-activated (AILOSS_KEY set)     ← one env var; agent scaffolds it, human authorizes
+activated (AGENTLOSS_KEY set)     ← one env var; agent scaffolds it, human authorizes
    ↓  derived metrics now flow to hosted backend
 outcome-wired (error rate + $)     ← Tier A day one; B/C as trust deepens
    ↓
@@ -342,11 +342,11 @@ downstream aggregation (out of scope)
 
 - **`llms.txt`** at the docs root: what it is + shortest correct usage + attribute
   list + pack/adapter recipe.
-- **MCP server** (`ailoss-mcp`): `how_to_instrument(framework)`,
+- **MCP server** (`agentloss-mcp`): `how_to_instrument(framework)`,
   `write_adapter(system)`, `validate_integration()`, `explain_attribute(name)`.
 - **Coding-agent skill** (`instrument-agent-reliability`) with the canonical recipe.
 - **Rules snippet** for `CLAUDE.md` / `AGENTS.md` / `.cursorrules`.
-- **Framework plugins:** `ailoss-langgraph`, `ailoss-crewai` (auto-wrap tool nodes).
+- **Framework plugins:** `agentloss-langgraph`, `agentloss-crewai` (auto-wrap tool nodes).
 - High-signal README + clean registry metadata.
 
 ## What the SDK computes
