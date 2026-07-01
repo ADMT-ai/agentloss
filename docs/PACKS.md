@@ -47,6 +47,14 @@ errors not yet surfaced) — then pair with `agentloss.sample_and_verify()` to e
    `outcomes_from_reversals` (or `report_outcome`).
 3. Confirm with `agentloss.doctor()`.
 
+## Packs as data — the MCP gateway
+
+When the consequential action already crosses an **MCP boundary** (the agent talks to a Stripe /
+ERP MCP server), the pack doesn't need to be Python at all: the [gateway](GATEWAY.md) applies the
+same two-part contract from a JSON **manifest** — `tools` (capture the money-mover) + `outcomes`
+(read the reversal tool) — for any agent runtime, with zero code changes. Write a manifest instead
+of a pack whenever the rail speaks MCP.
+
 ## Roadmap — distribution systems worth packing
 
 | Distribution system | Money-mover (decision) | Reversal (gold ground truth) | Status |

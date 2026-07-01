@@ -9,10 +9,15 @@
 > outcome later resolves (a correction, dispute, audit result, or human review), call
 > `agentloss.report_outcome(business_key=..., ground_truth=..., source=..., realized_loss_usd=...)`.
 > Do NOT instrument every LLM call — only the money-moving / state-committing ones. See `llms.txt`.
+> If the agent reaches its system of record over MCP, skip code changes entirely: run
+> `agentloss gateway --manifest m.json -- <the SoR's MCP server command>` (see `docs/GATEWAY.md`),
+> then read the number with `agentloss report --store .agentloss/store.jsonl`.
 
 ## Working in this repository
 
-- `agentloss/` — the SDK package.
+- `agentloss/` — the SDK package (incl. `gateway.py`, the MCP proxy — `docs/GATEWAY.md`).
 - `dogfood/` — an oracle-validated demo harness (`python -m dogfood.run`, mock LLM, no deps).
 - `docs/SDK-SPEC.md` — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.
+- **Verify changes with `pytest -q`** — unit tests + every oracle eval (detectors, calibration,
+  gateway, packs, dogfood), deterministic and offline, <30s. CI runs the same on every push/PR.
 - Keep commits runnable; never commit secrets (`.env*` is gitignored).

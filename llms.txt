@@ -71,6 +71,21 @@ See `examples/payment_pack.py`. First-class **Stripe pack** (`agentloss.packs.st
 wraps `Charge`/`PaymentIntent`/`Refund`; disputes become gold ground truth via batch
 `outcomes_from_disputes(stripe)` or real-time `handle_webhook_event(event)`.
 
+## No code changes: the MCP gateway
+
+If the agent reaches its system of record over MCP (a Stripe MCP server, an ERP MCP server),
+skip instrumentation entirely — run the agentloss gateway in front of that server:
+
+    agentloss gateway --manifest m.json --store .agentloss/store.jsonl -- <server command>
+
+A JSON manifest (a pack, as data) declares the consequential tools (paths to the amount and
+business key in `arguments`/`result`) and the reversal tool (`error_statuses`/`correct_statuses`
+-> gold ground truth). The gateway records a decision per consequential `tools/call`, injects
+`agentloss_report` / `agentloss_doctor` / `agentloss_sync_outcomes` / `agentloss_record_outcome`
+into `tools/list` (the agent reads its own error rate through the same connection), and persists
+to a JSONL store for out-of-process readout: `agentloss report --store <path>`. Works for ANY
+agent runtime — TypeScript, n8n, Claude Code — not only Python. See docs/GATEWAY.md.
+
 ## What it computes
 
 Error rate by segment with confidence intervals, **realized + expected dollar loss**, and the
@@ -90,4 +105,6 @@ derived metrics leave.
 - docs/SDK-SPEC.md — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.
 - docs/PACKS.md — packs (capture off a payment SDK / ERP / agent-tool / context layer) + how to write one.
 - docs/DETECTORS.md — outcome detectors (the SoR side): detect + measure a realized outcome, hardened + eval'd.
+- docs/GATEWAY.md — the MCP gateway (measure any agent at the MCP boundary, zero code changes) + the manifest format.
 - AGENTS.md — drop-in rule for coding agents.
+- Verify any change with `pytest -q` (unit tests + every oracle eval; runs in CI).

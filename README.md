@@ -62,6 +62,26 @@ boundary; only derived metrics leave.
 failures in plain language (outcomes reported but none counted, only-errors reported, a loss
 source that won't be summed). Or from a shell: `agentloss doctor --json`.
 
+## No code changes at all? The MCP gateway
+
+If your agent already reaches its system of record over **MCP** (a Stripe MCP server, an ERP
+MCP server), don't instrument code — put the agentloss gateway in front of that server. One
+config change, any agent runtime (not only Python):
+
+```bash
+agentloss gateway --manifest stripe.manifest.json -- stripe-mcp --api-key ...
+```
+
+A JSON **manifest** (a pack, as data) declares which tools are consequential and where the
+reversal (dispute / credit-memo) lives; every consequential `tools/call` records a decision, and
+`agentloss_sync_outcomes` turns the rail's reversals into gold ground truth. The gateway also
+injects `agentloss_report` / `agentloss_doctor` into the server's tool list, so the agent reads
+its own error rate and dollar loss **through the same connection it acts through**. Readout
+out-of-process: `agentloss report --store .agentloss/store.jsonl`.
+
+See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
+[`examples/gateway_eval.py`](examples/gateway_eval.py) (an oracle eval, in CI).
+
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 
 Already tracing your agent with OpenInference/OpenTelemetry? Don't re-instrument. Add a few
@@ -106,7 +126,9 @@ AGENTLOSS_VERIFIER_LLM=claude ANTHROPIC_API_KEY=... python -m dogfood.run
 `agentloss` is built to be discovered and wired by coding agents:
 [`llms.txt`](llms.txt), the [`instrument-agent-reliability`](skills/instrument-agent-reliability/SKILL.md)
 skill, the [`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/agentloss_mcp.py)
-(`how_to_instrument`, `explain_attribute`, `validate_integration`).
+(`how_to_instrument`, `how_to_gateway`, `explain_attribute`, `validate_integration` — which
+inspects a persisted `--store` file, so an agent can *prove* its wiring). Every claim in the
+docs is backed by an oracle eval run in CI: `pytest -q`.
 
 ## License
 
