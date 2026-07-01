@@ -97,6 +97,23 @@ See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
 [`examples/gateway_eval.py`](examples/gateway_eval.py) and
 [`examples/gateway_init_eval.py`](examples/gateway_init_eval.py) (oracle evals, in CI).
 
+## Ground truth from the warehouse: `agentloss import`
+
+No API, no MCP server, just a finance-team export? That's the most common case — and a CSV is
+enough:
+
+```bash
+agentloss import --csv disputes.csv --store .agentloss/store.jsonl \
+    --map "business_key=invoice_no,status=resolution,loss=amount" \
+    --error-statuses lost --correct-statuses won --source chargeback --census
+```
+
+Rows join to captured decisions on `business_key`; statuses in neither list are non-final and
+skipped (and kept out of the census). Run without `--map` to draft one from the file's own
+header + observed statuses. `--all-errors` for a pure-reversals export. Proven by
+[`examples/import_eval.py`](examples/import_eval.py) (money formatting, last-wins, census
+edge cases — in CI).
+
 ## Works with your existing traces (Phoenix / Langfuse / Braintrust / OTel)
 
 Already tracing your agent with OpenInference/OpenTelemetry? Don't re-instrument. Add a few

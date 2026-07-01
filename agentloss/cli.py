@@ -71,6 +71,49 @@ def _report_cmd(args):
     return 0
 
 
+def _import_cmd(args):
+    from .importer import import_csv, suggest_mapping
+    import csv as _csv
+
+    if not args.map:
+        # draft the mapping from the file itself (the `gateway init` move, for a file)
+        with open(args.csv, newline="", encoding="utf-8-sig") as f:
+            reader = _csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            sample = [row for _, row in zip(range(50), reader)]
+        mapping, observed = suggest_mapping(fieldnames, sample)
+        print("no --map given; drafted from the file header:\n")
+        print("  --map \"" + ",".join(f"{k}={v}" for k, v in mapping.items()
+                                      if not v.startswith("_todo")) + "\"")
+        for k, v in mapping.items():
+            if v.startswith("_todo"):
+                print(f"  {k}: {v}")
+        if observed:
+            print(f"\nobserved statuses: {', '.join(observed)}\n"
+                  "  -> pass --error-statuses / --correct-statuses from these "
+                  "(anything in neither list is treated as non-final and skipped)")
+        return 0
+
+    mapping = dict(part.split("=", 1) for part in args.map.split(",") if "=" in part)
+    if "business_key" not in mapping:
+        print("--map must include business_key=<column>", file=sys.stderr)
+        return 2
+    _load_store_arg(args)
+    counts = import_csv(
+        args.csv, mapping,
+        error_statuses=[s for s in (args.error_statuses or "").split(",") if s],
+        correct_statuses=[s for s in (args.correct_statuses or "").split(",") if s],
+        source=args.source, amount_divisor=args.divisor,
+        all_errors=args.all_errors, census=args.census, store_path=args.store)
+    if args.json:
+        print(json.dumps(counts))
+    else:
+        print(f"imported: {counts['errors']} error(s), {counts['correct']} correct, "
+              f"{counts['census_correct']} census-correct; skipped {counts['skipped']}")
+        print(f"next: agentloss report --store {args.store}")
+    return 0
+
+
 def main(argv=None):
     # `gateway` relays raw JSON-RPC and owns its own argv shape (a `--` split), so it
     # bypasses argparse: agentloss gateway --manifest m.json [--store p] -- <command...>
@@ -92,6 +135,27 @@ def main(argv=None):
     p_report.add_argument("--json", action="store_true", help="machine-readable output")
     p_report.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
     p_report.set_defaults(func=_report_cmd)
+
+    p_imp = sub.add_parser("import", help="batch outcomes from a CSV export (the warehouse "
+                                          "channel); omit --map to draft one from the header")
+    p_imp.add_argument("--csv", required=True, help="the export file")
+    p_imp.add_argument("--map", help='"business_key=<col>[,status=<col>][,loss=<col>]"')
+    p_imp.add_argument("--error-statuses", help="comma-separated statuses meaning the "
+                                                "decision was wrong")
+    p_imp.add_argument("--correct-statuses", help="comma-separated statuses meaning it "
+                                                  "was right")
+    p_imp.add_argument("--all-errors", action="store_true",
+                       help="every row is an error (a pure reversals export)")
+    p_imp.add_argument("--census", action="store_true",
+                       help="mark stored decisions absent from the file as correct "
+                            "(only if the file is the complete catch of errors)")
+    p_imp.add_argument("--source", default="recovery_audit",
+                       help="recovery_audit|dispute|chargeback|refund|human_queue")
+    p_imp.add_argument("--divisor", type=float, default=1.0,
+                       help="divide loss amounts (e.g. 100 for minor units)")
+    p_imp.add_argument("--store", required=True, help="JSONL store (joins + persists)")
+    p_imp.add_argument("--json", action="store_true", help="machine-readable output")
+    p_imp.set_defaults(func=_import_cmd)
 
     sub.add_parser("gateway", help="MCP gateway: agentloss gateway --manifest m.json -- <cmd>")
 

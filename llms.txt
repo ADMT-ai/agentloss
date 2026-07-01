@@ -91,6 +91,13 @@ into `tools/list` (the agent reads its own error rate through the same connectio
 to a JSONL store for out-of-process readout: `agentloss report --store <path>`. Works for ANY
 agent runtime — TypeScript, n8n, Claude Code — not only Python. See docs/GATEWAY.md.
 
+## Ground truth from a CSV export (the warehouse channel)
+
+When the reversals live in a warehouse table or a finance export (no API at all), import them:
+`agentloss import --csv disputes.csv --store <store> --map "business_key=<col>,status=<col>,
+loss=<col>" --error-statuses lost --correct-statuses won --source chargeback [--census]
+[--all-errors]`. Omit --map to draft one from the file's header + observed statuses.
+
 ## What it computes
 
 Error rate by segment with confidence intervals, **realized + expected dollar loss**, and the
