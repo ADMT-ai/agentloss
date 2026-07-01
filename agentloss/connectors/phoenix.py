@@ -29,8 +29,11 @@ def _row_to_span(row):
     """A Phoenix span row (dict) -> ({'attributes': {agentloss.*}}, span_id) or (None, None)."""
     attrs = {}
     for col, val in row.items():
-        if isinstance(col, str) and col.startswith(_ATTR_PREFIX + "agentloss."):
-            attrs[col[len(_ATTR_PREFIX):]] = val
+        if not isinstance(col, str) or not col.startswith(_ATTR_PREFIX):
+            continue
+        short = col[len(_ATTR_PREFIX):]
+        if short.startswith("agentloss.") or short in ("input.value", "output.value"):
+            attrs[short] = val
     if A_ACTION not in attrs or A_KEY not in attrs:
         return None, None
     span_id = row.get("context.span_id") or row.get("span_id")

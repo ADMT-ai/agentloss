@@ -24,6 +24,7 @@ A_KEY = "agentloss.business_key"
 A_VAR = "agentloss.value_at_risk_usd"
 A_USECASE = "agentloss.use_case"
 A_MODEL = "agentloss.model"
+A_CONTEXT = "agentloss.context"
 
 
 def _attrs(span):
@@ -42,12 +43,16 @@ def decision_from_span(span):
         var = float(a.get(A_VAR, 0) or 0)
     except (TypeError, ValueError):
         var = 0.0
+    ctx = a.get(A_CONTEXT)
+    if not ctx:  # fall back to OpenInference input/output as the verifier's evidence
+        ctx = "\n".join(f"{k}: {a[k]}" for k in ("input.value", "output.value") if a.get(k))
     return Decision(
         action=str(action),
         value_at_risk_usd=var,
         business_key=str(key),
         use_case=a.get(A_USECASE, "default"),
         model=a.get(A_MODEL, "unknown"),
+        context=str(ctx or ""),
     )
 
 

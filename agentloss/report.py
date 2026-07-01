@@ -20,11 +20,15 @@ class Params:
         self.cal_negative_sample_rate = cal_q
 
 
-def sample_and_verify(verify_fn, target_n=600, seed=0):
+def sample_and_verify(verify_fn=None, target_n=600, seed=0):
     """Active-sample the captured decisions and label them with a verification agent.
 
     verify_fn(decision) -> {should_have_been, confidence?, estimated_loss?}
+    If verify_fn is None, uses the default LLM verifier (Claude; needs agentloss[claude]).
     Returns the number of decisions verified."""
+    if verify_fn is None:
+        from .llm_verifier import llm_verifier
+        verify_fn = llm_verifier()
     return sampler.run_store(verify_fn, Params(target_n=target_n), random.Random(seed))
 
 

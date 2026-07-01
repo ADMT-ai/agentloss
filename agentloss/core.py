@@ -15,6 +15,7 @@ class Decision:
     model: str = "mock"
     in_envelope: bool = True
     decision_id: str = ""
+    context: str = ""           # optional evidence for the verifier (agent input/output); local-only
 
 
 @dataclass
