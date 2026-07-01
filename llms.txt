@@ -59,6 +59,16 @@ Confirm the wiring with `agentloss.doctor()` (in-process) or `agentloss doctor -
 it catches the silent failures — outcomes reported but none counted, only-errors reported, a
 loss source that will not be summed.
 
+## Packs — capture off an existing distribution system
+
+If your consequential action goes through a known rail (a payment SDK, an ERP client, an agent
+tool), don't hand-instrument — apply a pack. `agentloss.packs.capture(fn, amount_of=..., key_of=...)`
+wraps the money-mover so every call auto-records a decision (amount = value-at-risk), and
+`outcomes_from_reversals(reversed_keys, amount_by_key, source="chargeback")` turns the rail's
+disputes / chargebacks / refunds / credit-memos into gold ground truth (a census by default, so
+the rate is right too). One integration yields the decision, the exposure, and the ground truth.
+See `examples/payment_pack.py`.
+
 ## What it computes
 
 Error rate by segment with confidence intervals, **realized + expected dollar loss**, and the

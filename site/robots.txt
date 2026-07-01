@@ -1,0 +1,8 @@
+# agentloss.com — crawlers welcome
+User-agent: *
+Allow: /
+
+# Machine-legible spec for AI coding agents
+# https://agentloss.com/llms.txt
+
+Sitemap: https://agentloss.com/sitemap.xml

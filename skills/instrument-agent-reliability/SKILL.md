@@ -60,6 +60,12 @@ Wire `agentloss` into an agent that takes consequential actions so its productio
    incremental risk vs. baseline. Raw data stays local; only derived metrics leave.
 
 ## Notes
+- **Packs** (skip hand-instrumentation): if the action goes through a known distribution system
+  (a payment SDK, an ERP client, an agent tool), apply a pack instead of steps 3–4.
+  `agentloss.packs.capture(fn, amount_of=..., key_of=...)` wraps the money-mover so every call
+  auto-records a decision, and `outcomes_from_reversals(reversed_keys, amount_by_key,
+  source="chargeback")` turns disputes/chargebacks/refunds into gold ground truth (a census, so
+  the rate is right too). See `examples/payment_pack.py`.
 - `sampled` / `pi` are load-bearing but you rarely set them: they default to a full census, so
   ground truth you already have counts by default. Pass `sampled=False` only for a biased
   partial catch (an audit that surfaces errors but never confirms correct decisions).

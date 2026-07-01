@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agentloss — the loss layer for AI agent traces</title>
+  <meta name="description" content="Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record. pip install agentloss.">
+  <meta name="keywords" content="agentloss, AI agent reliability, agent error rate, dollar loss, OpenTelemetry, OpenInference, Phoenix, AI observability, ADMT">
+  <link rel="canonical" href="https://agentloss.com/">
+  <meta name="robots" content="index, follow">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="agentloss">
+  <meta property="og:title" content="agentloss — the loss layer for AI agent traces">
+  <meta property="og:description" content="Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record.">
+  <meta property="og:url" content="https://agentloss.com/">
+  <meta property="og:image" content="https://agentloss.com/og.svg">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="agentloss — the loss layer for AI agent traces">
+  <meta name="twitter:description" content="Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record.">
+  <meta name="twitter:image" content="https://agentloss.com/og.svg">
+
+  <!-- For AI coding agents: the machine-legible spec lives at /llms.txt -->
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "agentloss",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "OS Independent",
+    "description": "Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record.",
+    "url": "https://agentloss.com/",
+    "downloadUrl": "https://pypi.org/project/agentloss/",
+    "codeRepository": "https://github.com/ADMT-ai/agentloss",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Organization", "name": "ADMT", "url": "https://admt.ai" }
+  }
+  </script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">agent<span>loss</span></a>
+    <nav aria-label="Primary">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#agents">For AI agents</a>
+      <a href="https://github.com/ADMT-ai/agentloss">GitHub</a>
+      <a href="https://pypi.org/project/agentloss/">PyPI</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>The loss layer for AI agent traces.</h1>
+      <p class="lede">
+        Measure your AI agent's real-world error rate and dollar loss — the loss layer
+        on top of your existing traces and systems of record.
+      </p>
+
+      <div class="install">
+        <code id="install-cmd">pip install agentloss</code>
+        <button type="button" class="copy" data-copy="pip install agentloss" aria-label="Copy install command">Copy</button>
+      </div>
+
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#quickstart">Quickstart</a>
+        <a class="btn" href="https://github.com/ADMT-ai/agentloss">GitHub</a>
+        <a class="btn" href="https://pypi.org/project/agentloss/">PyPI</a>
+        <a class="btn" href="/llms.txt">llms.txt</a>
+      </div>
+    </section>
+
+    <section class="pitch" aria-label="What agentloss is">
+      <div class="card">
+        <h2>Instrument the consequential action</h2>
+        <p>
+          Not every LLM call — just the tool call that moves money or commits the
+          business (payments, approvals, ticket resolutions, writes to systems of record).
+        </p>
+      </div>
+      <div class="card">
+        <h2>Join to ground truth</h2>
+        <p>
+          Outcomes arrive late and from outside the agent — corrections, disputes,
+          audits, human review. agentloss captures them and reconciles by business key.
+        </p>
+      </div>
+      <div class="card">
+        <h2>Get the numbers that matter</h2>
+        <p>
+          False-approve (error) rate by segment with confidence intervals, realized and
+          expected dollar loss, and incremental risk vs. a baseline.
+        </p>
+      </div>
+    </section>
+
+    <section id="quickstart" class="quickstart">
+      <h2>Quickstart</h2>
+      <p>Instrument the consequential decision, then report outcomes as they resolve.</p>
+
+      <div class="code-block">
+        <button type="button" class="copy" data-copy-target="qs-1" aria-label="Copy code">Copy</button>
+<pre id="qs-1"><code>from agentloss import decision, report_outcome, Decision
+
+@decision                                    # wraps a consequential action; records it
+def approve_payment(invoice):
+    action = run_matching(invoice)           # your logic -&gt; "approve" | "hold" | "reject"
+    return Decision(
+        action=action,
+        value_at_risk_usd=invoice.total,     # per-decision exposure
+        business_key=invoice.number,         # natural join key for delayed outcomes
+        use_case="ap_3way_match",
+    )
+
+# later, when the outcome resolves (a correction, dispute, audit, or human review):
+report_outcome(
+    business_key="INV-88231",
+    ground_truth="duplicate-should-block",
+    source="recovery_audit",                 # human_queue | verification_agent | recovery_audit
+    realized_loss_usd=14200,
+)</code></pre>
+      </div>
+
+      <h3>Already have traces? Read them in.</h3>
+      <p>
+        agentloss is OpenTelemetry / OpenInference-aligned, so it drops in as a thin
+        layer on top of your existing traces. If you already collect spans in
+        <a href="https://phoenix.arize.com/">Arize Phoenix</a>, point the connector at
+        them instead of hand-instrumenting:
+      </p>
+
+      <div class="code-block">
+        <button type="button" class="copy" data-copy-target="qs-2" aria-label="Copy code">Copy</button>
+<pre id="qs-2"><code>from agentloss.connectors import phoenix
+
+# pull consequential-action spans from a Phoenix project into agentloss Decisions
+for d in phoenix.read_decisions(project="ap-agent", endpoint="http://localhost:6006"):
+    ...   # each `d` is a Decision the loss layer scores against ground truth</code></pre>
+      </div>
+      <p class="note">
+        Raw prompts and records stay inside your boundary; only derived metrics leave.
+      </p>
+    </section>
+
+    <section id="agents" class="agents">
+      <h2>For AI coding agents</h2>
+      <p>
+        SDK adoption in 2026 is agent-written. agentloss is built to be found and wired
+        by coding agents with no human in the integration loop.
+      </p>
+      <ul class="agent-links">
+        <li><a href="/llms.txt"><strong>/llms.txt</strong></a> — machine-legible spec + shortest-correct-path usage.</li>
+        <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/AGENTS.md"><strong>AGENTS.md</strong></a> — drop-in rule to paste into a project's <code>AGENTS.md</code> / <code>CLAUDE.md</code>.</li>
+        <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/skills/instrument-agent-reliability/SKILL.md"><strong>Skill</strong></a> — the canonical instrumentation recipe.</li>
+        <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/mcp/agentloss_mcp.py"><strong>MCP server</strong></a> — <code>how_to_instrument</code>, <code>explain_attribute</code>, <code>validate_integration</code>.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/ADMT-ai/agentloss">GitHub</a> ·
+      <a href="https://pypi.org/project/agentloss/">PyPI</a> ·
+      <a href="/llms.txt">llms.txt</a> ·
+      <a href="https://admt.ai">ADMT</a>
+    </p>
+    <p class="fine">Part of <a href="https://admt.ai">ADMT</a> — the instrumentation + data layer for AI risk.</p>
+  </footer>
+
+  <script src="/copy.js" defer></script>
+</body>
+</html>
