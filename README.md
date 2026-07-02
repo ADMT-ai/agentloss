@@ -54,7 +54,8 @@ record_outcomes([
 
 Report the outcomes that **agreed** with the agent too, not only the disputes — the rate's
 denominator is *reported approvals*, so reporting only errors makes it read ~100%. `source`
-is one of `recovery_audit | dispute | chargeback | refund | human_queue | verification_agent`.
+is one of `recovery_audit | dispute | chargeback | refund | human_queue | verification_agent |
+inferred` (the last two are silver: their dollars flow through *expected* loss, never realized).
 
 It computes the error rate by segment (with confidence intervals), **realized + expected dollar
 loss**, and the agent's incremental risk vs. a baseline. Raw prompts/records stay in your
@@ -103,7 +104,7 @@ so estimated dollars flow through *expected* loss, never passed off as realized.
 
 See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
 [`examples/gateway_eval.py`](examples/gateway_eval.py),
-[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py), and — up three rungs of
+[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py), and — up eight rungs of
 SoR mess with zero hand-written config — the synthetic SoR ladder
 ([`examples/sor_ladder_eval.py`](examples/sor_ladder_eval.py)) (oracle evals, in CI).
 

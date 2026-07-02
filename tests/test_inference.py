@@ -78,3 +78,17 @@ def test_batch_shape_is_silver_and_skips_nonfinal():
     assert rows[0]["ground_truth"] == "reject"
     assert rows[0]["estimated_loss_usd"] == 100.0
     assert rows[1]["ground_truth"] == "approve"
+
+
+def test_parse_money_refuses_decimal_comma():
+    # same caution as `agentloss import`: never misread "1,23" as 123
+    assert parse_money("refunded USD 1,23") is None
+    assert parse_money("refunded $1,234.50") == 1234.50
+
+
+def test_loss_reads_the_resolution_amount_not_the_transaction_amount():
+    v = infer_outcome("customer disputed the $500.00 charge; complaint upheld, "
+                      "refunded $120.00")
+    assert v["estimated_loss_usd"] == 120.0
+    v = infer_outcome("the $500.00 charge was clawed back")  # only one figure: use it
+    assert v["estimated_loss_usd"] == 500.0

@@ -31,6 +31,8 @@ import re
 import subprocess
 import sys
 
+from .inference import infer_outcome
+
 __all__ = ["draft_manifest", "probe_tools", "probe_tools_http", "main"]
 
 _READ_PREFIXES = ("list", "get", "search", "retrieve", "read", "lookup", "find", "fetch",
@@ -94,6 +96,10 @@ def _is_outcome_read(tool):
                                   for n in _REVERSAL_NOUNS + _RESOLUTION_NOUNS)
 
 
+def _fields(rows):
+    return set().union(*[set(r) for r in rows]) if rows else set()
+
+
 def _evidence_fields(rows):
     """Row fields that read like free text (a string with a space in it) — the evidence
     an inferred outcome is judged from."""
@@ -117,7 +123,6 @@ def _learn_status_vocab(rows, status_field, evidence_fields):
     grouping the statuses by verdict. A status seen on both sides is ambiguous and lands
     in neither (its rows stay non-final). Returns (error_statuses, correct_statuses,
     rows_used) or None when the text decided nothing."""
-    from .inference import infer_outcome
     err, ok = set(), set()
     used = 0
     for row in rows:
@@ -278,11 +283,13 @@ def _follow_pages(call, name, first_result, paginate, max_pages=20):
     cursor_field = paginate["cursor"].partition(".")[2]
     rows = []
     result = first_result
+    cursors = set()                         # a server echoing the same cursor
     for _ in range(max_pages):
         data = _result_data(result)
         cursor = data.get(cursor_field) if isinstance(data, dict) else None
-        if not cursor:
+        if not cursor or cursor in cursors:
             break
+        cursors.add(cursor)
         result = call(name, {paginate["arg"]: cursor})
         rows.extend(_result_rows(result)[1])
     return rows
@@ -292,7 +299,7 @@ def _row_paths(rows, prefer=()):
     """Derive item.* paths from observed reversal rows. `prefer` biases the business_key
     pick toward the money-mover's own noun (a row carrying both `case_id` and
     `payment_id` joins decisions on the payment, not the case)."""
-    fields = set().union(*[set(r) for r in rows]) if rows else set()
+    fields = _fields(rows)
     id_fields = [f for f in sorted(fields) if f.endswith("_id") and f != "id"]
     key = next((f for f in id_fields if any(f.startswith(n) for n in prefer)),
                id_fields[0] if id_fields else None)
@@ -318,49 +325,56 @@ def _discover_joins(manifest, tools, probed_rows, call, notes):
                   if t.get("name", "") not in classified
                   and _is_read(t.get("name", ""))
                   and not ((t.get("inputSchema") or {}).get("required"))]
+    probed_cands = {}                       # tool name -> (items_path, jfields, paginate)
     for oname, rows in probed_rows.items():
         spec = manifest["outcomes"][oname]
         loss = spec.get("loss")
         if isinstance(loss, str) and not loss.startswith("_todo"):
             continue                        # the rows already carry their dollar
-        fields = set().union(*[set(r) for r in rows])
-        links = [f for f in sorted(fields) if f.endswith("_id") and f != "id"
+        links = [f for f in sorted(_fields(rows)) if f.endswith("_id") and f != "id"
                  and f"item.{f}" != spec.get("business_key")]
         if not links:
             continue
         for cand in candidates:
             cname = cand.get("name", "")
-            try:
-                result = call(cname)
-                items_path, jrows = _result_rows(result)
-                if not jrows:
-                    continue
-                jfields = set().union(*[set(r) for r in jrows])
-                link = next((f for f in links if f in jfields), None)
-                amount = next((a for a in _AMOUNT_PROPS if a in jfields), None)
-                if not (link and amount):
-                    continue
-                join = {"tool": cname, "items": items_path,
-                        "left": f"item.{link}", "right": f"item.{link}"}
-                paginate = _paginate_spec(result, cand)
-                if paginate:
-                    join["paginate"] = paginate
-                spec["join"] = join
-                spec["loss"] = f"join.{amount}"
-                spec.pop("loss_fallback", None)   # an explicit dollar beats the bound
-                notes.append(f"{oname}: its rows carry no amount — dollars joined "
-                             f"from {cname} on {link}.")
-                break
-            except Exception as e:
-                notes.append(f"probing join candidate {cname} failed ({e!r}).")
+            if cname not in probed_cands:   # one probe per candidate, not per channel
+                try:
+                    result = call(cname)
+                    items_path, jrows = _result_rows(result)
+                    probed_cands[cname] = (items_path, _fields(jrows),
+                                           _paginate_spec(result, cand))
+                except Exception as e:
+                    probed_cands[cname] = None
+                    notes.append(f"probing join candidate {cname} failed ({e!r}).")
+            if probed_cands[cname] is None:
+                continue
+            items_path, jfields, paginate = probed_cands[cname]
+            link = next((f for f in links if f in jfields), None)
+            amount = next((a for a in _AMOUNT_PROPS if a in jfields), None)
+            if not (items_path and link and amount):
+                continue
+            join = {"tool": cname, "items": items_path,
+                    "left": f"item.{link}", "right": f"item.{link}"}
+            if paginate:
+                join["paginate"] = paginate
+            spec["join"] = join
+            spec["loss"] = f"join.{amount}"
+            # loss_fallback stays: a row whose join key finds no match still gets
+            # the conservative value-at-risk estimate instead of a silent $0
+            notes.append(f"{oname}: its rows carry no amount — dollars joined "
+                         f"from {cname} on {link}.")
+            break
 
 
 # ---------------------------------------------------------------- drafting
 
-def draft_manifest(tools, use_case="gateway", call=None):
+def draft_manifest(tools, use_case=None, call=None):
     """Classify a tools/list into a manifest draft. `call(name, args)`, when given, probes
-    zero-required-argument reversal candidates to derive row paths from real data."""
-    manifest = {"version": 1, "use_case": use_case, "tools": {}, "outcomes": {}}
+    zero-required-argument reversal candidates to derive row paths from real data.
+    `use_case=None` means none was given: the understood domain is used; an explicit
+    value (any value) is preserved verbatim."""
+    manifest = {"version": 1, "use_case": use_case or "gateway",
+                "tools": {}, "outcomes": {}}
     notes = []
     # the money-movers' own nouns bias which row id joins back to the decisions
     prefer = sorted({w for t in tools if _is_money_mover(t)
@@ -412,11 +426,14 @@ def draft_manifest(tools, use_case="gateway", call=None):
                         if key:
                             seen_keys = [r.get(key) for r in rows if r.get(key) is not None]
                             if len(seen_keys) != len(set(seen_keys)):
-                                # duplicated keys = revised rulings; find what orders them
-                                fields = set().union(*[set(r) for r in rows])
-                                order = next((f for f in sorted(fields) if any(
-                                    m in f for m in ("_at", "date", "time", "seq",
-                                                     "version", "revision"))), None)
+                                # duplicated keys = revised rulings; find what orders
+                                # them — revision-ish names FIRST, so a constant
+                                # created_at never shadows the actual revised_at
+                                fields = _fields(rows)
+                                order = next(
+                                    (f for m in ("revis", "updated", "modified", "seq",
+                                                 "version", "_at", "date", "time")
+                                     for f in sorted(fields) if m in f), None)
                                 if order:
                                     spec["latest_by"] = f"item.{order}"
                                     notes.append(f"{name}: duplicated {key} rows observed "
@@ -428,7 +445,6 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                                  "row in list order will win.")
                         if status is None and evidence:
                             # no enum to look up — soft outcomes: infer from the text
-                            from .inference import infer_outcome
                             spec["mode"] = "infer"
                             spec["source"] = "inferred"
                             spec["evidence"] = [f"item.{f}" for f in evidence]
@@ -443,7 +459,7 @@ def draft_manifest(tools, use_case="gateway", call=None):
                             judged = [infer_outcome(" | ".join(
                                 str(r[f]) for f in evidence if r.get(f) is not None))
                                 ["ground_truth"] for r in rows]
-                            if all(v is None for v in judged):
+                            if rows and all(v is None for v in judged):
                                 # the vocabulary reads NONE of it — needs a reasoner
                                 spec["reasoner"] = "llm"
                                 spec["source"] = "verification_agent"
@@ -454,7 +470,6 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                     "path.py:fn). Verdicts are silver; calibrate "
                                     "against a small gold budget (agentloss."
                                     "calibrate) for the honest number.")
-                            probed = True
                             manifest["outcomes"][name] = spec
                             continue
                         spec["status"] = f"item.{status}" if status else \
@@ -470,11 +485,16 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                 if fields else None
                             if learned:
                                 known_err, known_ok, used = learned
+                                # a heuristic mapping must not book realized P&L:
+                                # the gateway honors this as silver until a reviewer
+                                # deletes the fidelity key to promote it
+                                spec["fidelity"] = "silver"
                                 spec["_learned_statuses"] = (
                                     f"vocabulary learned by inferring {used} probed "
                                     "row(s) from their free text "
-                                    "(agentloss.inference) — review before trusting "
-                                    "realized dollars")
+                                    "(agentloss.inference) — outcomes stay SILVER "
+                                    "(expected loss) until you review the mapping "
+                                    "and delete the \"fidelity\" key")
                                 notes.append(f"{name}: observed statuses matched no "
                                              "known vocabulary; mapping learned from "
                                              "the rows' free-text fields.")
@@ -503,7 +523,7 @@ def draft_manifest(tools, use_case="gateway", call=None):
     if call is not None:
         _discover_joins(manifest, tools, probed_rows, call, notes)
     domain = _guess_domain(tools)
-    if use_case == "gateway":               # no slug given: use the understood domain
+    if use_case is None:                    # no slug given: use the understood domain
         manifest["use_case"] = domain
     manifest["business_context"] = {
         "domain": domain,
@@ -541,7 +561,7 @@ def main(argv):
         opts, downstream = argv[:split], argv[split + 1:]
     else:
         opts, downstream = argv, None
-    out, use_case, probe, url, headers = None, "gateway", True, None, {}
+    out, use_case, probe, url, headers = None, None, True, None, {}
     i = 0
     while i < len(opts):
         if opts[i] == "--out":

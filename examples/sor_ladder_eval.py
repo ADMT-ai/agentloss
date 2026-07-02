@@ -9,7 +9,8 @@ Every system of record writes its outcomes differently; the ladder proves the sa
                                                  (parsed from the text, else value-at-risk)
     level 3 — unknown status vocabulary       -> onboarding LEARNS the mapping from the
                                                  rows' own text; execution runs status
-                                                 mode — gold, realized dollars again
+                                                 mode, but a heuristic mapping is
+                                                 SILVER until a human reviews it
     level 4 — paginated outcome read          -> the cursor is detected at onboarding
                                                  and followed to the end at sync; page
                                                  one alone would under-count
@@ -67,7 +68,9 @@ OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_n
                  3: "list_dispute_settlements", 4: "list_disputes",
                  5: "list_return_cases", 6: "list_dispute_rulings",
                  7: "list_support_tickets"}
-GOLD_LEVELS = (0, 3, 4, 5, 6)   # rungs whose execution yields gold, realized dollars
+STATUS_LEVELS = (0, 3, 4, 5, 6)  # rungs that execute in status mode (no inference)
+GOLD_LEVELS = (0, 4, 5, 6)       # rungs whose execution yields gold, realized dollars
+# level 3 is status mode but SILVER: its vocabulary was learned, not reviewed
 # level 7's mock reasoner is deliberately fallible: it estimates 700 for the fraud loss
 # and 300 for a false alarm -> raw silver dollars read 1000, and calibration must
 # correct them back to the 1100 oracle
@@ -104,7 +107,7 @@ def onboard(level, tmp):
     tool = OUTCOME_TOOLS[level]
     out = m["outcomes"].get(tool, {})
     check(f"L{level} onboard: outcome channel found", bool(out), json.dumps(m["outcomes"]))
-    mode = "status" if level in GOLD_LEVELS else "infer"
+    mode = "status" if level in STATUS_LEVELS else "infer"
     check(f"L{level} onboard: channel mode = {mode}", out.get("mode", "status") == mode,
           json.dumps(out))
     check(f"L{level} onboard: join key probed", out.get("business_key") == "item.payment_id",
@@ -130,6 +133,8 @@ def onboard(level, tmp):
               json.dumps(out))
         check("L3 onboard: learning is declared, not silent",
               "_learned_statuses" in out, json.dumps(out))
+        check("L3 onboard: learned mapping is SILVER until reviewed",
+              out.get("fidelity") == "silver", json.dumps(out))
         channel = next((c for c in ctx.get("outcome_channels", [])
                         if c.get("tool") == tool), {})
         check("L3 onboard: business_context marks the vocabulary learned",
@@ -191,7 +196,7 @@ def execute_and_deliver(level, manifest_path, tmp):
     check(f"L{level} deliver: census fills denominator",
           synced["census_correct"] == ORACLE_CENSUS, str(synced))
     check(f"L{level} deliver: inferred count",
-          synced["inferred"] == (0 if level in GOLD_LEVELS
+          synced["inferred"] == (0 if level in STATUS_LEVELS
                                  else ORACLE_ERRORS + ORACLE_CORRECT),
           str(synced))
 

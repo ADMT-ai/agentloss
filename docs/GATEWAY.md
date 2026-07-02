@@ -138,9 +138,10 @@ zero-argument reads for a shared id field plus an amount column and drafts the j
 
 A read that keeps the appeal HISTORY duplicates its keys — a revised ruling, not two
 outcomes. Sync keeps one row per `business_key`: the greatest `"latest_by":
-"item.revised_at"` value when declared (ISO timestamps compare correctly; zero-pad
-numeric sequences), else the last row in list order (the importer's rule). `init` drafts
-`latest_by` when it observes duplicated keys and a revision/date field.
+"item.revised_at"` value when declared (numeric values compare numerically, strings —
+ISO timestamps — as text); without it, a FINAL row (status in the manifest's vocab)
+outranks a still-open one, and later list order breaks ties (the importer's rule).
+`init` drafts `latest_by` when it observes duplicated keys and a revision/date field.
 
 ### Soft outcomes — infer the outcome, estimate the loss
 
@@ -209,8 +210,9 @@ shape. Rows with no status field but free-text fields are drafted as `"mode": "i
 outcomes), with `loss_fallback: value_at_risk` when no amount column exists either. A status
 enum the default vocabulary doesn't know (MERCHANT_DEBIT, ...) gets **learned**: init infers
 each probed row's verdict from its free-text fields and groups the statuses by verdict —
-declared via `_learned_statuses` (an ambiguous status lands in neither set), so execution
-still runs in gold status mode. The draft
+declared via `_learned_statuses`, an ambiguous status lands in neither set, and the spec
+carries `"fidelity": "silver"` so a heuristic mapping never books realized P&L until a
+reviewer deletes that key to promote it. The draft
 also carries a **`business_context`** block — the domain it understood the server to be
 (payments/billing/orders/...), the money-movers, and each outcome channel's mode — so the
 onboarding judgment is reviewable, not implicit; without `--use-case`, the use case is the
@@ -286,7 +288,7 @@ MCP. Both write the same shapes; both are honest about the denominator.
   (`examples/gateway/sor_ladder_server.py`): one mock SoR, five rungs of outcome mess —
   level 0 explicit status enum; level 1 free-text note, amount column (outcome inferred);
   level 2 note only (loss estimated too); level 3 unknown status vocabulary (the mapping is
-  learned from the rows' own text at onboarding, then execution runs gold status mode);
+  learned from the rows' own text at onboarding — silver until a human reviews it);
   level 4 paginated outcome read (cursor detected at onboarding, followed to the end at
   sync); level 5 outcome split across two tools (the join is discovered at onboarding —
   including picking the id that joins back to the decisions, not the case — and executed
@@ -318,9 +320,8 @@ MCP. Both write the same shapes; both are honest about the denominator.
 - ~~**Soft outcomes**~~ — ✅ shipped (0.0.18): `"mode": "infer"` — outcome inferred from
   free-text evidence, loss estimated (parsed from the text, else value-at-risk), recorded
   silver so it feeds the existing sampling + calibration for an honest number. Proven up the
-  synthetic SoR ladder (`examples/sor_ladder_eval.py`). Still open: an LLM reasoner rung
-  (`detectors.reasoning` behind the same manifest contract) for evidence that marker
-  vocabulary can't judge.
+  synthetic SoR ladder (`examples/sor_ladder_eval.py`). The reasoner rung for evidence the
+  vocabulary can't judge shipped in 0.0.23 (`"reasoner"` + `AGENTLOSS_REASONER`).
 - **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time:
   ~~unknown status vocabularies~~ (✅ 0.0.19: learned from the rows' own text at init),
   ~~paginated outcome reads~~ (✅ 0.0.20: `paginate` — cursor detected at init, followed at

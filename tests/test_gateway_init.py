@@ -101,7 +101,8 @@ def test_unknown_vocabulary_learned_from_row_text():
 
     m = draft_manifest([_tool("list_disputes")], call=call)
     out = m["outcomes"]["list_disputes"]
-    assert out.get("mode", "status") == "status"            # execution stays gold
+    assert out.get("mode", "status") == "status"
+    assert out["fidelity"] == "silver"                       # learned, not yet reviewed
     assert out["error_statuses"] == ["MERCHANT_DEBIT"]
     assert out["correct_statuses"] == ["CONSUMER_CLAIM_DENIED"]
     assert "_learned_statuses" in out                        # declared, not silent

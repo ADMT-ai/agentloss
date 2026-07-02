@@ -22,7 +22,7 @@ class Decision:
 @dataclass
 class Outcome:
     ground_truth: str
-    source: str                 # recovery_audit | dispute | chargeback | refund | human_queue | verification_agent
+    source: str                 # recovery_audit | dispute | chargeback | refund | human_queue | verification_agent | inferred
     fidelity: str               # gold | silver
     confidence: float = 1.0
     realized_loss_usd: float = None

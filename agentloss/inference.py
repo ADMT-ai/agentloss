@@ -49,15 +49,36 @@ DEFAULT_CORRECT_MARKERS = (
 )
 
 # A dollar amount written in text: requires an explicit currency marker ($ or USD) so
-# ids/dates never read as money. Thousands separators OK; decimal commas are not
-# attempted (same caution as `agentloss import`).
+# ids/dates never read as money. Thousands separators OK; a DECIMAL comma ("1,23") is
+# refused rather than misread 10x — the same caution as `agentloss import`.
 _MONEY_RE = re.compile(r"(?:\$\s?|usd\s+)(\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
+_DECIMAL_COMMA_RE = re.compile(r"^\d+(?:,\d{3})*,\d{1,2}$")
+
+_DEFAULT_ERROR_LOWER = tuple(m.lower() for m in DEFAULT_ERROR_MARKERS)
+_DEFAULT_CORRECT_LOWER = tuple(m.lower() for m in DEFAULT_CORRECT_MARKERS)
 
 
-def parse_money(text):
-    """First explicit dollar amount in free text, or None."""
-    m = _MONEY_RE.search(text or "")
-    return float(m.group(1).replace(",", "")) if m else None
+def _to_money(token):
+    if _DECIMAL_COMMA_RE.match(token):
+        return None
+    return float(token.replace(",", ""))
+
+
+def parse_money(text, near=None):
+    """An explicit dollar amount in free text, or None. With `near` (a character
+    position — the end of the resolution marker), prefer the first amount at or after
+    it, then the closest one before it: the number NEXT TO "refunded" is the loss, not
+    the transaction amount the note opened with."""
+    matches = [(m.start(), _to_money(m.group(1))) for m in _MONEY_RE.finditer(text or "")]
+    matches = [(pos, val) for pos, val in matches if val is not None]
+    if not matches:
+        return None
+    if near is not None:
+        after = [val for pos, val in matches if pos >= near]
+        if after:
+            return after[0]
+        return matches[-1][1]              # nearest before the marker
+    return matches[0][1]
 
 
 def _last_match(text, markers):
@@ -83,8 +104,10 @@ def infer_outcome(evidence, *, value_at_risk=None, loss=None,
     joined decision's exposure (the conservative fallback when no figure exists).
     """
     text = str(evidence or "").lower()
-    err = _last_match(text, [m.lower() for m in (error_markers or DEFAULT_ERROR_MARKERS)])
-    ok = _last_match(text, [m.lower() for m in (correct_markers or DEFAULT_CORRECT_MARKERS)])
+    err = _last_match(text, tuple(m.lower() for m in error_markers)
+                      if error_markers else _DEFAULT_ERROR_LOWER)
+    ok = _last_match(text, tuple(m.lower() for m in correct_markers)
+                     if correct_markers else _DEFAULT_CORRECT_LOWER)
     if err < 0 and ok < 0:
         return {"ground_truth": None, "estimated_loss_usd": 0.0,
                 "confidence": 0.0, "loss_basis": None}
@@ -95,7 +118,7 @@ def infer_outcome(evidence, *, value_at_risk=None, loss=None,
     if loss is not None:
         est, basis = float(loss), "explicit"
     else:
-        parsed = parse_money(text)
+        parsed = parse_money(text, near=err)
         if parsed is not None:
             est, basis = parsed, "parsed"
         elif value_at_risk is not None:

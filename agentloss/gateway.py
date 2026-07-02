@@ -29,6 +29,7 @@ import threading
 
 from .core import STORE, Decision, report_outcome
 from .doctor import validate_integration
+from .inference import infer_outcome
 from .persist import DEFAULT_STORE_PATH, append_decision, append_outcome
 from .report import report
 
@@ -74,6 +75,16 @@ def _resolve(path, roots):
         if node is None:
             return None
     return node
+
+
+def _as_number(v):
+    """A numeric rank value (int/float or numeric string), or None."""
+    if isinstance(v, bool):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _result_data(result):
@@ -341,35 +352,34 @@ class Gateway:
         census = False
         for tool, spec in specs.items():
             census = census or bool(spec.get("census", True))
-            rows = self._latest_rows(self._fetch_rows(tool, spec), spec)
             joined = self._fetch_join(spec.get("join"))
+            rows = self._latest_rows(self._fetch_rows(tool, spec), spec, joined)
             infer = spec.get("mode") == "infer"
             for row in rows:
-                roots = {"item": row}
-                if joined is not None:
-                    j = _resolve(spec["join"].get("left"), roots)
-                    roots["join"] = joined.get(str(j), {})
+                roots = self._row_roots(row, spec, joined)
                 key = _resolve(spec.get("business_key"), roots)
                 if key is None:
                     continue
                 key = str(key)
+                # any reversal row — final, open, or unreadable — takes the key out
+                # of the census ("no reversal" means correct; anything else is not a
+                # confirmed absence)
+                seen.add(key)
                 if infer:
-                    self._sync_inferred(key, spec, roots, seen, totals)
+                    self._sync_inferred(key, spec, roots, totals)
                     continue
                 status = _resolve(spec.get("status"), roots)
                 if status is None:
                     continue
                 status = str(status)
-                # any dispute row — final or not — takes the key out of the census
-                # ("no reversal" means correct; "unresolved reversal" means unknown)
-                seen.add(key)
                 if status in (spec.get("error_statuses") or []):
                     loss = _resolve(spec.get("loss"), roots)
                     if loss is None and spec.get("loss_fallback") == "value_at_risk":
                         # the SoR names the error but not the dollar: estimate the loss
-                        # from the decision's own exposure (expected, not realized)
+                        # from the decision's own exposure (expected, not realized —
+                        # and a bound, not a read, so confidence matches infer mode)
                         self._sync_one(key, "reject", spec, self._value_at_risk(key),
-                                       realized=False)
+                                       realized=False, confidence=0.7)
                     else:
                         loss = (float(loss) if loss is not None else 0.0) \
                             / float(spec.get("amount_divisor", 1))
@@ -381,11 +391,13 @@ class Gateway:
                 else:
                     totals["skipped_nonfinal"] += 1
         if census:
-            first = next(iter(specs.values()))
-            source = first.get("source", "dispute")
-            # census fills inherit the channel's fidelity: an absence observed through an
-            # inferred channel is silver, like the channel itself
-            realized = first.get("mode") != "infer"
+            census_specs = [s for s in specs.values() if s.get("census", True)]
+            source = census_specs[0].get("source", "dispute")
+            # a fill is only as good as the WEAKEST channel vouching for the absence:
+            # if any census channel is inferred/reasoned/declared-silver, fills are
+            # silver too — never dependent on manifest key order
+            realized = all(s.get("mode") != "infer" and not s.get("reasoner")
+                           and s.get("fidelity") != "silver" for s in census_specs)
             for key, d in list(STORE.decisions.items()):
                 if key not in seen and key not in STORE.outcomes:
                     self._sync_one(key, d.action, {"source": source}, 0.0,
@@ -400,6 +412,7 @@ class Gateway:
         pag = spec.get("paginate")
         args = dict(spec.get("arguments") or {})
         rows = []
+        cursors = set()                         # a server echoing the same cursor
         for _ in range(1000 if pag else 1):     # hard cap: a cursor that never ends
             data = _result_data(self.call_downstream(tool, args))
             page = _resolve(spec.get("items", "result"), {"result": data})
@@ -407,28 +420,47 @@ class Gateway:
             if not pag:
                 break
             cursor = _resolve(pag.get("cursor"), {"result": data})
-            if not cursor:
+            if not cursor or cursor in cursors:
                 break
+            cursors.add(cursor)
             args[pag.get("arg", "cursor")] = cursor
         return rows
 
-    def _latest_rows(self, rows, spec):
-        """One row per business_key: a duplicated key is a REVISED ruling (an appeal),
-        not two outcomes — counting both would double-count and could resurrect a
-        superseded verdict. `"latest_by": "item.<field>"` keeps the row with the
-        greatest value (ISO timestamps compare correctly as strings; zero-pad numeric
-        sequences); without it, the last row in list order wins (the importer's rule).
-        Rows whose business_key doesn't resolve are dropped, as the per-row loop would
-        skip them anyway."""
+    def _row_roots(self, row, spec, joined):
+        roots = {"item": row}
+        if joined is not None:
+            j = _resolve(spec["join"].get("left"), roots)
+            roots["join"] = joined.get(str(j), {})
+        return roots
+
+    def _latest_rows(self, rows, spec, joined=None):
+        """One row per business_key: a duplicated key is usually a REVISED ruling (an
+        appeal) — counting both would double-count and could resurrect a superseded
+        verdict. `"latest_by": "item.<field>"` keeps the row with the greatest value
+        (numeric values compare numerically, strings — ISO timestamps — as text).
+        Without it, a FINAL row (status in the manifest's vocab) outranks a non-final
+        one — a still-open second dispute must not erase a resolved verdict — and
+        later list order breaks ties (the importer's rule). Rows whose business_key
+        doesn't resolve are dropped, as the per-row loop would skip them anyway."""
         order = spec.get("latest_by")
-        best = {}                               # key -> ((rank, index), row)
+        final_statuses = set(spec.get("error_statuses") or []) \
+            | set(spec.get("correct_statuses") or [])
+        best = {}                               # key -> (rank, row)
         for i, row in enumerate(rows):
-            key = _resolve(spec.get("business_key"), {"item": row})
+            roots = self._row_roots(row, spec, joined)
+            key = _resolve(spec.get("business_key"), roots)
             if key is None:
                 continue
             key = str(key)
-            r = _resolve(order, {"item": row}) if order else None
-            rank = ("" if r is None else str(r), i)
+            if order:
+                r = _resolve(order, roots)
+                num = _as_number(r)
+                rank = (1, 1, num, "", i) if num is not None else \
+                    (1, 0, 0.0, "" if r is None else str(r), i)
+            else:
+                status = _resolve(spec.get("status"), roots)
+                final = 1 if str(status) in final_statuses else 0
+                rank = (final, 0, 0.0, "", i)
             if key not in best or rank >= best[key][0]:
                 best[key] = (rank, row)
         return [row for _, row in best.values()]
@@ -447,7 +479,7 @@ class Gateway:
                 lookup[str(k)] = row
         return lookup
 
-    def _sync_inferred(self, key, spec, roots, seen, totals):
+    def _sync_inferred(self, key, spec, roots, totals):
         """One infer-mode row: read the evidence, infer the outcome, estimate the loss.
         With `"reasoner"` declared, the judgment comes from a reasoning agent (env
         `AGENTLOSS_REASONER=path.py:fn`) instead of the marker vocabulary — for
@@ -459,11 +491,9 @@ class Gateway:
         loss = _resolve(spec.get("loss"), roots)
         var = self._value_at_risk(key) \
             if spec.get("loss_fallback", "value_at_risk") == "value_at_risk" else None
-        seen.add(key)          # even a non-final case note takes the key out of the census
         if spec.get("reasoner"):
             self._sync_reasoned(key, spec, evidence, var, totals)
             return
-        from .inference import infer_outcome
         v = infer_outcome(evidence,
                           loss=None if loss is None else
                           float(loss) / float(spec.get("amount_divisor", 1)),
@@ -504,14 +534,16 @@ class Gateway:
             totals["skipped_nonfinal"] += 1
             return
         totals["inferred"] += 1
-        confidence = float(verdict.get("confidence", 0.7) or 0.7)
+        confidence = verdict.get("confidence")     # 0.0 is a real (no-trust) value
+        confidence = 0.7 if confidence is None else float(confidence)
         if judgment == "reject":
+            est = verdict.get("estimated_loss")    # 0.0 is a real ($0 loss) figure
             try:
-                est = float(verdict.get("estimated_loss", 0) or 0)
+                est = None if est is None else float(est)
             except (TypeError, ValueError):
-                est = 0.0
-            if not est and var:
-                est = var                      # the conservative bound, as elsewhere
+                est = None
+            if est is None:
+                est = var or 0.0               # no figure given: the conservative bound
             self._sync_one(key, "reject", spec, est, realized=False,
                            confidence=confidence)
             totals["errors"] += 1
@@ -555,7 +587,12 @@ class Gateway:
 
     def _sync_one(self, key, ground_truth, spec, loss, realized=True, confidence=1.0):
         """realized=True: gold ground truth, realized dollars. realized=False: an inferred
-        or estimated outcome — silver, the dollars count as expected loss only."""
+        or estimated outcome — silver, the dollars count as expected loss only. A spec
+        that declares `"fidelity": "silver"` (e.g. a status vocabulary LEARNED at init
+        and not yet reviewed) is silver regardless — heuristic mappings must not book
+        realized P&L until a human promotes them."""
+        if spec.get("fidelity") == "silver":
+            realized = False
         report_outcome(key, ground_truth=ground_truth,
                        source=spec.get("source", "dispute"),
                        fidelity="gold" if realized else "silver",
