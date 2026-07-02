@@ -8,7 +8,7 @@ self-reported. Doctor-style findings, same shapes as agentloss.doctor.
 """
 from .core import STORE
 from .doctor import _worst, run_checks
-from .metrics import REALIZED_LOSS_SOURCES, false_approve
+from .metrics import REALIZED_LOSS_SOURCES, false_approve, wilson
 from .report import Params
 
 __all__ = ["underwriting_report", "qualification_checks"]
@@ -81,8 +81,44 @@ def qualification_checks():
     return findings
 
 
-def underwriting_report(cfg=None):
-    """The actuary's view of the record. Returns a dict; see docs/SUPPORT-CONCESSION.md."""
+def _segment_stats(granting, outcomes):
+    """Per-DECIDER statistics (Decision.model carries who decided: the agent, a human
+    team, ...). Backfilled human history and live agent capture land in one record, so
+    the same math yields each segment's rate and loss — the baseline comparison."""
+    segments = {}
+    for d in granting:
+        s = segments.setdefault(d.model or "unknown", {
+            "decisions": 0, "exposure_usd": 0.0, "n_evidenced": 0, "k_errors": 0,
+            "_ht": 0.0, "expected_loss_usd": 0.0})
+        s["decisions"] += 1
+        s["exposure_usd"] += d.value_at_risk_usd or 0.0
+        o = outcomes.get(d.business_key)
+        if o is None or not o.sampled:
+            continue
+        err = o.ground_truth != d.action
+        s["n_evidenced"] += 1
+        if err:
+            s["k_errors"] += 1
+            s["_ht"] += 1 / (o.pi or 1.0)
+            loss = (o.estimated_loss_usd if o.estimated_loss_usd is not None
+                    else o.realized_loss_usd) or 0.0
+            s["expected_loss_usd"] += loss / (o.pi or 1.0)
+    for s in segments.values():
+        rate, lo, hi = wilson(s["k_errors"], s["n_evidenced"])
+        s["wrongful_grant_rate"] = rate
+        s["rate_ci"] = [lo, hi]
+        s["rate_reweighted"] = s.pop("_ht") / s["decisions"] if s["decisions"] else 0.0
+        s["loss_to_exposure"] = (s["expected_loss_usd"] / s["exposure_usd"]
+                                 if s["exposure_usd"] else 0.0)
+    return segments
+
+
+def underwriting_report(cfg=None, agent=None, baseline=None):
+    """The actuary's view of the record. Returns a dict; see docs/SUPPORT-CONCESSION.md.
+
+    `agent` / `baseline` name two decider segments (Decision.model values) to compare —
+    the incremental-risk readout: how the agent prices against the human history it is
+    replacing (negative deltas = the agent is cheaper to insure)."""
     decisions = list(STORE.decisions.values())
     outcomes = STORE.outcomes
     granting = [d for d in decisions if d.action in _GRANTING]
@@ -114,6 +150,16 @@ def underwriting_report(cfg=None):
     qual = qualification_checks() + run_checks()
     level = _worst(qual)
     total_exposure = sum(exposures)
+    segments = _segment_stats(granting, outcomes)
+    comparison = None
+    if agent and baseline and agent in segments and baseline in segments:
+        a, b = segments[agent], segments[baseline]
+        comparison = {
+            "agent": agent, "baseline": baseline,
+            "rate_delta": a["wrongful_grant_rate"] - b["wrongful_grant_rate"],
+            "loss_to_exposure_delta": a["loss_to_exposure"] - b["loss_to_exposure"],
+            "cheaper_to_insure": a["loss_to_exposure"] < b["loss_to_exposure"],
+        }
     return {
         "profile": "support_concession",
         "qualifies": level != "fail",
@@ -149,5 +195,7 @@ def underwriting_report(cfg=None):
                          "census" if sampled else "none"),
             "sources": sources,
         },
+        "segments": segments,
+        "baseline_comparison": comparison,
         "qualification": qual,
     }

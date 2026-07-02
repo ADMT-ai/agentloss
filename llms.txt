@@ -159,7 +159,12 @@ amount as exposure and an envelope verdict; evidence is provenance-typed (gold =
 review sample at known pi / reconciliation / chargebacks; silver = inferred from ticket
 prose, calibrated). `agentloss underwrite --store s.jsonl --json` renders exposure,
 wrongful-grant frequency (CI + HT-reweighted), severity, realized/expected loss,
-loss-to-exposure, and the QUALIFICATION findings; exits 1 if the record does not qualify.
+loss-to-exposure, per-decider segments, and the QUALIFICATION findings; exits 1 if the
+record does not qualify. NO loss history yet? `agentloss backfill --csv history.csv
+--map "business_key=<col>,amount=<col>,decider=<col>,evidence=<col>" --store s.jsonl`
+builds the record RETROACTIVELY from the SoR's own historical export — outcomes
+adjudicated from the prose — then `underwrite --agent <decider> --baseline <decider>`
+prices the agent against the human team it replaced (day-one actuarial history).
 See docs/SUPPORT-CONCESSION.md.
 
 ## Docs

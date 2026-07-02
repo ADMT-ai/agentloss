@@ -28,8 +28,28 @@ model, no network, same contract.
 """
 import re
 
-__all__ = ["infer_outcome", "infer_outcomes", "parse_money",
+__all__ = ["infer_outcome", "infer_outcomes", "parse_money", "load_reasoner",
            "DEFAULT_ERROR_MARKERS", "DEFAULT_CORRECT_MARKERS"]
+
+
+def load_reasoner():
+    """The reasoning agent from AGENTLOSS_REASONER="path/to/file.py:function", or None.
+    A file path (not a module) so any project-local or vendored reasoner works without
+    packaging; an LLM-backed one is a file like any other. Contract: reasoner(evidence,
+    context) -> {"should_have_been", "estimated_loss", "confidence"} (detectors/reasoning)."""
+    import importlib.util
+    import os
+    target = os.environ.get("AGENTLOSS_REASONER", "")
+    path, _, fn = target.partition(":")
+    if not (path and fn):
+        return None
+    try:
+        module_spec = importlib.util.spec_from_file_location("agentloss_reasoner", path)
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        return getattr(module, fn)
+    except Exception:
+        return None
 
 # Resolution language meaning THE DECISION WAS WRONG (money came back out).
 DEFAULT_ERROR_MARKERS = (

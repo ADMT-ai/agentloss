@@ -79,7 +79,31 @@ actuary needs — all derived from the store, nothing self-reported:
   (census vs QA-sample with pi);
 - **qualification**: the pass/warn/fail findings from the checks above.
 
-Proven by `examples/underwriting_eval.py` (oracle eval, in CI): a seeded support-concession
-history — including a QA sample at known pi and inferred outcomes — must yield the exact
-seeded frequency, severity, and loss ratio, and a record missing the qualification bar must
-say so.
+## Backfill — day-one actuarial history, and the human baseline
+
+A newly deployed agent has no loss history; the system of record has years of it, in
+prose. `agentloss backfill` builds the record retroactively from a historical export:
+
+    agentloss backfill --csv history.csv --store s.jsonl \
+        --map "business_key=ticket_id,amount=refund_amount,decider=agent_name,evidence=resolution_notes"
+    agentloss underwrite --store s.jsonl --agent support_agent --baseline human_team
+
+Each historical concession becomes a Decision (the `decider` column lands in
+`Decision.model`, so human history and agent history are SEGMENTS of one record) and its
+outcome is adjudicated from the row: a mapped `status` column with vocabularies is gold
+(the export already ruled); otherwise the `evidence` prose is judged — the marker
+vocabulary, or the `AGENTLOSS_REASONER` agent — into silver outcomes with estimated
+losses. The report then carries per-decider segments and the **baseline comparison**:
+the agent's wrongful-grant rate and loss-to-exposure against the human team it replaced
+(`cheaper_to_insure` is the sentence that raises an autonomy ceiling). Silver-only
+backfills are flagged uncalibrated — feed a QA gold budget in and calibrate before
+anyone prices off them.
+
+## Proven by
+
+Oracle evals, in CI: `examples/underwriting_eval.py` — a seeded concession history
+(QA sample at known pi, reconciliation gold, inferred silver) must yield the exact seeded
+frequency, severity, and loss ratio, and a record missing the qualification bar must say
+so; `examples/backfill_eval.py` — a prose-only historical export must backfill into the
+exact seeded actuarial truth, segmented agent vs human, with the agent correctly priced
+cheaper than the baseline.
