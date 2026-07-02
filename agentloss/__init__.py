@@ -1,4 +1,4 @@
-__version__ = "0.0.29"
+__version__ = "0.0.30"
 
 from .core import Decision, STORE, decision, report_outcome, record_outcomes
 from .spans import ingest_spans, decision_from_span
