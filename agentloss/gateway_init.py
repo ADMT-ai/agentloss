@@ -10,19 +10,28 @@ explicit `_todo` markers a human or coding agent can finish in one pass.
 - **Money-movers**: non-read tools whose name pairs a committing verb (create/send/pay/...)
   with a money noun (payment/refund/order/...), or whose input schema carries an amount-like
   numeric property. Read-prefixed tools (list_/get_/search_/...) are never money-movers.
-- **Reversal reads**: read-prefixed tools naming a reversal noun (dispute/chargeback/
-  credit_memo/...). With probing on (default), init CALLS each reversal candidate that
-  requires no arguments — reads are safe — and derives the row paths (`items`,
-  `item.<key>`, `item.status`, `item.<amount>`) from the real response shape, mapping any
-  observed statuses through a default vocabulary (lost/chargedback -> error, won -> correct).
+- **Outcome reads**: read-prefixed tools naming a reversal noun (dispute/chargeback/
+  credit_memo/...) or a resolution noun (note/case/complaint/...). With probing on
+  (default), init CALLS each candidate that requires no arguments — reads are safe — and
+  derives the row paths (`items`, `item.<key>`, `item.status`, `item.<amount>`) from the
+  real response shape, mapping any observed statuses through a default vocabulary
+  (lost/chargedback -> error, won -> correct). Rows with NO status field but free-text
+  fields are drafted as `"mode": "infer"` (soft outcomes — agentloss.inference): the
+  outcome will be inferred from the text and, when no amount column exists either, the
+  loss estimated (`loss_fallback: value_at_risk`).
 
-Everything init could not establish is a `_todo` in the emitted JSON; unknown keys are
-ignored by the gateway, so the notes ride along harmlessly.
+It also emits a `business_context` block — the domain it understood the server to be
+(payments/billing/orders/...), the money-movers, and each outcome channel's mode — so the
+judgment is reviewable, not implicit. Everything init could not establish is a `_todo` in
+the emitted JSON; unknown keys are ignored by the gateway, so the notes ride along
+harmlessly.
 """
 import json
 import re
 import subprocess
 import sys
+
+from .inference import infer_outcome
 
 __all__ = ["draft_manifest", "probe_tools", "probe_tools_http", "main"]
 
@@ -34,6 +43,14 @@ _MONEY_NOUNS = ("payment", "charge", "invoice", "order", "refund", "payout", "tr
                 "subscription", "purchase", "billing", "credit", "debit", "price", "quote")
 _REVERSAL_NOUNS = ("dispute", "chargeback", "credit_memo", "credit_note", "debit_note",
                    "reversal", "complaint", "return")
+# reads whose rows tend to carry the outcome as FREE TEXT instead of a status enum
+_RESOLUTION_NOUNS = ("resolution", "note", "case", "ticket", "incident", "adjustment",
+                     "review")
+# domain guesses for the business_context block, by noun evidence in the tools/list
+_DOMAINS = (("payments", ("payment", "charge", "payout", "transfer")),
+            ("billing", ("invoice", "billing", "subscription", "credit", "debit")),
+            ("orders", ("order", "purchase", "quote")),
+            ("support", ("ticket", "case", "complaint")))
 _AMOUNT_PROPS = ("amount", "amount_usd", "total", "total_amount", "value", "price",
                  "unit_amount", "amount_minor")
 # default status vocabulary for probed reversal rows
@@ -71,6 +88,56 @@ def _is_money_mover(tool):
 def _is_reversal_read(tool):
     name = tool.get("name", "")
     return _is_read(name) and any(n in name.lower() for n in _REVERSAL_NOUNS)
+
+
+def _is_outcome_read(tool):
+    name = tool.get("name", "")
+    return _is_read(name) and any(n in name.lower()
+                                  for n in _REVERSAL_NOUNS + _RESOLUTION_NOUNS)
+
+
+def _fields(rows):
+    return set().union(*[set(r) for r in rows]) if rows else set()
+
+
+def _evidence_fields(rows):
+    """Row fields that read like free text (a string with a space in it) — the evidence
+    an inferred outcome is judged from."""
+    fields = set()
+    for row in rows:
+        fields |= {f for f, v in row.items() if isinstance(v, str) and " " in v.strip()}
+    return sorted(fields)
+
+
+def _guess_domain(tools):
+    text = " ".join("_".join(_words(t.get("name", ""))) for t in tools)
+    for domain, nouns in _DOMAINS:
+        if any(n in text for n in nouns):
+            return domain
+    return "transactions"
+
+
+def _learn_status_vocab(rows, status_field, evidence_fields):
+    """A status enum the default vocabulary doesn't know (MERCHANT_DEBIT, ...): LEARN the
+    mapping by inferring each probed row's verdict from its free-text fields, then
+    grouping the statuses by verdict. A status seen on both sides is ambiguous and lands
+    in neither (its rows stay non-final). Returns (error_statuses, correct_statuses,
+    rows_used) or None when the text decided nothing."""
+    err, ok = set(), set()
+    used = 0
+    for row in rows:
+        status = row.get(status_field)
+        if status is None:
+            continue
+        evidence = " | ".join(str(row[f]) for f in evidence_fields if row.get(f) is not None)
+        verdict = infer_outcome(evidence)["ground_truth"]
+        if verdict is None:
+            continue
+        used += 1
+        (err if verdict == "reject" else ok).add(str(status))
+    if not err and not ok:
+        return None
+    return sorted(err - ok), sorted(ok - err), used
 
 
 def _minor_units(prop_name, prop_schema):
@@ -189,10 +256,53 @@ def _result_rows(result):
     return None, []
 
 
-def _row_paths(rows):
-    """Derive item.* paths from observed reversal rows."""
-    fields = set().union(*[set(r) for r in rows]) if rows else set()
-    key = next((f for f in sorted(fields) if f.endswith("_id") and f != "id"), None)
+# paginated outcome reads: response fields that carry the next-page cursor, and the
+# request arguments servers accept it under
+_CURSOR_KEYS = ("next_cursor", "next_page_token", "next_page", "starting_after", "cursor")
+_CURSOR_ARGS = ("cursor", "page_token", "starting_after", "after", "page")
+
+
+def _paginate_spec(result, tool):
+    """A cursor in the probed response -> the manifest `paginate` block, or None."""
+    from .gateway import _result_data
+    data = _result_data(result)
+    if not isinstance(data, dict):
+        return None
+    key = next((k for k in _CURSOR_KEYS if data.get(k)), None)
+    if key is None:
+        return None
+    props = ((tool.get("inputSchema") or {}).get("properties")) or {}
+    arg = next((a for a in _CURSOR_ARGS if a in props), "cursor")
+    return {"cursor": f"result.{key}", "arg": arg}
+
+
+def _follow_pages(call, name, first_result, paginate, max_pages=20):
+    """Collect the remaining pages' rows so classification sees the whole population,
+    not page one. Returns the extra rows."""
+    from .gateway import _result_data
+    cursor_field = paginate["cursor"].partition(".")[2]
+    rows = []
+    result = first_result
+    cursors = set()                         # a server echoing the same cursor
+    for _ in range(max_pages):
+        data = _result_data(result)
+        cursor = data.get(cursor_field) if isinstance(data, dict) else None
+        if not cursor or cursor in cursors:
+            break
+        cursors.add(cursor)
+        result = call(name, {paginate["arg"]: cursor})
+        rows.extend(_result_rows(result)[1])
+    return rows
+
+
+def _row_paths(rows, prefer=()):
+    """Derive item.* paths from observed reversal rows. `prefer` biases the business_key
+    pick toward the money-mover's own noun (a row carrying both `case_id` and
+    `payment_id` joins decisions on the payment, not the case)."""
+    fields = _fields(rows)
+    id_fields = [f for f in sorted(fields) if f.endswith("_id") and f != "id"]
+    key = next((f for f in id_fields if any(f.startswith(n) for n in prefer)),
+               id_fields[0] if id_fields else None)
     key_todo = None
     if key is None and "id" in fields:
         key, key_todo = "id", ("'id' is likely the reversal's own id, not the disputed "
@@ -205,13 +315,71 @@ def _row_paths(rows):
     return key, key_todo, status, loss, observed
 
 
+def _discover_joins(manifest, tools, probed_rows, call, notes):
+    """An outcome read whose rows carry no dollar: the amount often lives in a SIBLING
+    read (a settlements/amounts table) sharing an id field. Probe the unclassified
+    zero-argument reads; if one shares an id with the outcome rows and carries an
+    amount, draft the `join` and point `loss` at `join.<amount>`."""
+    classified = set(manifest["tools"]) | set(manifest["outcomes"])
+    candidates = [t for t in tools
+                  if t.get("name", "") not in classified
+                  and _is_read(t.get("name", ""))
+                  and not ((t.get("inputSchema") or {}).get("required"))]
+    probed_cands = {}                       # tool name -> (items_path, jfields, paginate)
+    for oname, rows in probed_rows.items():
+        spec = manifest["outcomes"][oname]
+        loss = spec.get("loss")
+        if isinstance(loss, str) and not loss.startswith("_todo"):
+            continue                        # the rows already carry their dollar
+        links = [f for f in sorted(_fields(rows)) if f.endswith("_id") and f != "id"
+                 and f"item.{f}" != spec.get("business_key")]
+        if not links:
+            continue
+        for cand in candidates:
+            cname = cand.get("name", "")
+            if cname not in probed_cands:   # one probe per candidate, not per channel
+                try:
+                    result = call(cname)
+                    items_path, jrows = _result_rows(result)
+                    probed_cands[cname] = (items_path, _fields(jrows),
+                                           _paginate_spec(result, cand))
+                except Exception as e:
+                    probed_cands[cname] = None
+                    notes.append(f"probing join candidate {cname} failed ({e!r}).")
+            if probed_cands[cname] is None:
+                continue
+            items_path, jfields, paginate = probed_cands[cname]
+            link = next((f for f in links if f in jfields), None)
+            amount = next((a for a in _AMOUNT_PROPS if a in jfields), None)
+            if not (items_path and link and amount):
+                continue
+            join = {"tool": cname, "items": items_path,
+                    "left": f"item.{link}", "right": f"item.{link}"}
+            if paginate:
+                join["paginate"] = paginate
+            spec["join"] = join
+            spec["loss"] = f"join.{amount}"
+            # loss_fallback stays: a row whose join key finds no match still gets
+            # the conservative value-at-risk estimate instead of a silent $0
+            notes.append(f"{oname}: its rows carry no amount — dollars joined "
+                         f"from {cname} on {link}.")
+            break
+
+
 # ---------------------------------------------------------------- drafting
 
-def draft_manifest(tools, use_case="gateway", call=None):
+def draft_manifest(tools, use_case=None, call=None):
     """Classify a tools/list into a manifest draft. `call(name, args)`, when given, probes
-    zero-required-argument reversal candidates to derive row paths from real data."""
-    manifest = {"version": 1, "use_case": use_case, "tools": {}, "outcomes": {}}
+    zero-required-argument reversal candidates to derive row paths from real data.
+    `use_case=None` means none was given: the understood domain is used; an explicit
+    value (any value) is preserved verbatim."""
+    manifest = {"version": 1, "use_case": use_case or "gateway",
+                "tools": {}, "outcomes": {}}
     notes = []
+    # the money-movers' own nouns bias which row id joins back to the decisions
+    prefer = sorted({w for t in tools if _is_money_mover(t)
+                     for w in _words(t.get("name", "")) if w in _MONEY_NOUNS})
+    probed_rows = {}
     for tool in tools:
         name = tool.get("name", "")
         if _is_money_mover(tool):
@@ -232,31 +400,107 @@ def draft_manifest(tools, use_case="gateway", call=None):
             if "currency" in props:
                 spec["currency"] = "arguments.currency"
             manifest["tools"][name] = spec
-        elif _is_reversal_read(tool):
+        elif _is_outcome_read(tool):
             spec = {"source": "chargeback" if "dispute" in name or "chargeback" in name
                     else "refund", "census": True}
             required = ((tool.get("inputSchema") or {}).get("required")) or []
             probed = False
             if call is not None and not required:
                 try:
-                    items_path, rows = _result_rows(call(name))
+                    result = call(name)
+                    items_path, rows = _result_rows(result)
+                    paginate = _paginate_spec(result, tool)
+                    if paginate and items_path is not None:
+                        spec["paginate"] = paginate
+                        rows = rows + _follow_pages(call, name, result, paginate)
                     if items_path is not None and rows:
-                        key, key_todo, status, loss, observed = _row_paths(rows)
+                        probed_rows[name] = rows
+                        key, key_todo, status, loss, observed = _row_paths(rows, prefer)
+                        evidence = _evidence_fields(rows)
                         spec["items"] = items_path
                         spec["business_key"] = (f"item.{key}" if key else
                                                 "_todo: item.<field naming the original "
                                                 "decision>")
                         if key_todo:
                             spec["_todo_business_key"] = key_todo
+                        if key:
+                            seen_keys = [r.get(key) for r in rows if r.get(key) is not None]
+                            if len(seen_keys) != len(set(seen_keys)):
+                                # duplicated keys = revised rulings; find what orders
+                                # them — revision-ish names FIRST, so a constant
+                                # created_at never shadows the actual revised_at
+                                fields = _fields(rows)
+                                order = next(
+                                    (f for m in ("revis", "updated", "modified", "seq",
+                                                 "version", "_at", "date", "time")
+                                     for f in sorted(fields) if m in f), None)
+                                if order:
+                                    spec["latest_by"] = f"item.{order}"
+                                    notes.append(f"{name}: duplicated {key} rows observed "
+                                                 f"— revisions; the greatest {order} wins "
+                                                 "(latest_by).")
+                                else:
+                                    notes.append(f"{name}: duplicated {key} rows observed "
+                                                 "but no ordering field found — the last "
+                                                 "row in list order will win.")
+                        if status is None and evidence:
+                            # no enum to look up — soft outcomes: infer from the text
+                            spec["mode"] = "infer"
+                            spec["source"] = "inferred"
+                            spec["evidence"] = [f"item.{f}" for f in evidence]
+                            if loss:
+                                spec["loss"] = f"item.{loss}"
+                            else:
+                                spec["loss_fallback"] = "value_at_risk"
+                                notes.append(f"{name} rows carry no amount field — an "
+                                             "error's loss will be parsed from the "
+                                             "evidence text, else estimated at the "
+                                             "decision's value-at-risk.")
+                            judged = [infer_outcome(" | ".join(
+                                str(r[f]) for f in evidence if r.get(f) is not None))
+                                ["ground_truth"] for r in rows]
+                            if rows and all(v is None for v in judged):
+                                # the vocabulary reads NONE of it — needs a reasoner
+                                spec["reasoner"] = "llm"
+                                spec["source"] = "verification_agent"
+                                notes.append(
+                                    f"{name}: the marker vocabulary judged 0 of "
+                                    f"{len(rows)} probed rows — evidence needs a "
+                                    "reasoning agent (set AGENTLOSS_REASONER="
+                                    "path.py:fn). Verdicts are silver; calibrate "
+                                    "against a small gold budget (agentloss."
+                                    "calibrate) for the honest number.")
+                            manifest["outcomes"][name] = spec
+                            continue
                         spec["status"] = f"item.{status}" if status else \
                             "_todo: item.<the row's resolution field>"
                         spec["loss"] = f"item.{loss}" if loss else \
                             "_todo: item.<the row's dollar amount>"
-                        spec["error_statuses"] = [s for s in observed
-                                                  if s.lower() in _ERROR_STATUSES] or \
+                        known_err = [s for s in observed if s.lower() in _ERROR_STATUSES]
+                        known_ok = [s for s in observed if s.lower() in _CORRECT_STATUSES]
+                        if status and observed and not known_err and not known_ok:
+                            # an unknown vocabulary — learn it from the rows' own text
+                            fields = [f for f in _evidence_fields(rows) if f != status]
+                            learned = _learn_status_vocab(rows, status, fields) \
+                                if fields else None
+                            if learned:
+                                known_err, known_ok, used = learned
+                                # a heuristic mapping must not book realized P&L:
+                                # the gateway honors this as silver until a reviewer
+                                # deletes the fidelity key to promote it
+                                spec["fidelity"] = "silver"
+                                spec["_learned_statuses"] = (
+                                    f"vocabulary learned by inferring {used} probed "
+                                    "row(s) from their free text "
+                                    "(agentloss.inference) — outcomes stay SILVER "
+                                    "(expected loss) until you review the mapping "
+                                    "and delete the \"fidelity\" key")
+                                notes.append(f"{name}: observed statuses matched no "
+                                             "known vocabulary; mapping learned from "
+                                             "the rows' free-text fields.")
+                        spec["error_statuses"] = known_err or \
                             ["_todo: which observed statuses mean the decision was wrong"]
-                        spec["correct_statuses"] = [s for s in observed
-                                                    if s.lower() in _CORRECT_STATUSES]
+                        spec["correct_statuses"] = known_ok
                         spec["_observed_statuses"] = observed
                         probed = True
                     elif items_path is not None:
@@ -276,6 +520,22 @@ def draft_manifest(tools, use_case="gateway", call=None):
                     "correct_statuses": ["_todo"],
                 })
             manifest["outcomes"][name] = spec
+    if call is not None:
+        _discover_joins(manifest, tools, probed_rows, call, notes)
+    domain = _guess_domain(tools)
+    if use_case is None:                    # no slug given: use the understood domain
+        manifest["use_case"] = domain
+    manifest["business_context"] = {
+        "domain": domain,
+        "money_movers": sorted(manifest["tools"]),
+        "outcome_channels": [
+            {"tool": t, "mode": s.get("mode", "status"),
+             **({"vocabulary": "learned"} if "_learned_statuses" in s else {})}
+            for t, s in manifest["outcomes"].items()],
+        "outcome_basis": ("inferred from free text" if any(
+            s.get("mode") == "infer" for s in manifest["outcomes"].values())
+            else "explicit statuses"),
+    }
     manifest["_init"] = {
         "generated_by": "agentloss gateway init",
         "notes": notes,
@@ -301,7 +561,7 @@ def main(argv):
         opts, downstream = argv[:split], argv[split + 1:]
     else:
         opts, downstream = argv, None
-    out, use_case, probe, url, headers = None, "gateway", True, None, {}
+    out, use_case, probe, url, headers = None, None, True, None, {}
     i = 0
     while i < len(opts):
         if opts[i] == "--out":

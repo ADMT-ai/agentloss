@@ -22,12 +22,14 @@ server (`--url`, stdlib urllib — see gateway_http.py). Only `tools/list` respo
 path or unparsable result never blocks the business call.
 """
 import json
+import os
 import subprocess
 import sys
 import threading
 
 from .core import STORE, Decision, report_outcome
 from .doctor import validate_integration
+from .inference import infer_outcome
 from .persist import DEFAULT_STORE_PATH, append_decision, append_outcome
 from .report import report
 
@@ -75,6 +77,16 @@ def _resolve(path, roots):
     return node
 
 
+def _as_number(v):
+    """A numeric rank value (int/float or numeric string), or None."""
+    if isinstance(v, bool):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _result_data(result):
     """The tool's structured result: MCP structuredContent, else the first text content
     block JSON-parsed, else None."""
@@ -107,7 +119,9 @@ _AGENTLOSS_TOOLS = [
      "inputSchema": _schema({}, [])},
     {"name": "agentloss_sync_outcomes",
      "description": "Fetch the system of record's reversals (via the manifest's outcome "
-                    "tool) and record them as gold ground-truth outcomes.",
+                    "tool) and record them as ground-truth outcomes — gold when the rows "
+                    "carry a status enum, silver (inferred outcome, estimated loss) when "
+                    "the manifest declares mode=infer.",
      "inputSchema": _schema({"tool": {"type": "string", "description":
                              "Which manifest outcome tool to sync (default: all)."}}, [])},
     {"name": "agentloss_record_outcome",
@@ -320,33 +334,56 @@ class Gateway:
         return msg.get("result")
 
     def sync_outcomes(self, only_tool=None):
-        """Call the manifest's reversal tool(s); map rows -> gold outcomes. Mirrors
-        packs.outcomes_from_reversals: census=True also marks the uncontested captured
-        decisions correct, so the denominator is right."""
-        totals = {"errors": 0, "correct": 0, "skipped_nonfinal": 0, "census_correct": 0}
+        """Call the manifest's reversal tool(s); map rows -> outcomes. Two modes per spec:
+
+        - `"mode": "status"` (default) — the row carries a status enum; matches are GOLD,
+          realized dollars. Mirrors packs.outcomes_from_reversals.
+        - `"mode": "infer"` — the row carries free-text evidence, no reliable enum; the
+          outcome is INFERRED and the loss ESTIMATED (agentloss.inference). Verdicts are
+          SILVER: the dollars flow through expected loss, never realized.
+
+        census=True also marks the uncontested captured decisions correct, so the
+        denominator is right."""
+        totals = {"errors": 0, "correct": 0, "skipped_nonfinal": 0, "census_correct": 0,
+                  "inferred": 0}
         specs = ({only_tool: self.m.outcomes[only_tool]} if only_tool
                  else dict(self.m.outcomes))
         seen = set()
         census = False
         for tool, spec in specs.items():
             census = census or bool(spec.get("census", True))
-            data = _result_data(self.call_downstream(tool, spec.get("arguments")))
-            rows = _resolve(spec.get("items", "result"), {"result": data})
-            for row in rows if isinstance(rows, list) else []:
-                roots = {"item": row}
+            joined = self._fetch_join(spec.get("join"))
+            rows = self._latest_rows(self._fetch_rows(tool, spec), spec, joined)
+            infer = spec.get("mode") == "infer"
+            for row in rows:
+                roots = self._row_roots(row, spec, joined)
                 key = _resolve(spec.get("business_key"), roots)
-                status = _resolve(spec.get("status"), roots)
-                if key is None or status is None:
+                if key is None:
                     continue
-                key, status = str(key), str(status)
-                # any dispute row — final or not — takes the key out of the census
-                # ("no reversal" means correct; "unresolved reversal" means unknown)
+                key = str(key)
+                # any reversal row — final, open, or unreadable — takes the key out
+                # of the census ("no reversal" means correct; anything else is not a
+                # confirmed absence)
                 seen.add(key)
+                if infer:
+                    self._sync_inferred(key, spec, roots, totals)
+                    continue
+                status = _resolve(spec.get("status"), roots)
+                if status is None:
+                    continue
+                status = str(status)
                 if status in (spec.get("error_statuses") or []):
                     loss = _resolve(spec.get("loss"), roots)
-                    loss = (float(loss) if loss is not None else 0.0) \
-                        / float(spec.get("amount_divisor", 1))
-                    self._sync_one(key, "reject", spec, loss)
+                    if loss is None and spec.get("loss_fallback") == "value_at_risk":
+                        # the SoR names the error but not the dollar: estimate the loss
+                        # from the decision's own exposure (expected, not realized —
+                        # and a bound, not a read, so confidence matches infer mode)
+                        self._sync_one(key, "reject", spec, self._value_at_risk(key),
+                                       realized=False, confidence=0.7)
+                    else:
+                        loss = (float(loss) if loss is not None else 0.0) \
+                            / float(spec.get("amount_divisor", 1))
+                        self._sync_one(key, "reject", spec, loss)
                     totals["errors"] += 1
                 elif status in (spec.get("correct_statuses") or []):
                     self._sync_one(key, self._action_of(key), spec, 0.0)
@@ -354,21 +391,214 @@ class Gateway:
                 else:
                     totals["skipped_nonfinal"] += 1
         if census:
-            source = next(iter(specs.values())).get("source", "dispute")
+            census_specs = [s for s in specs.values() if s.get("census", True)]
+            source = census_specs[0].get("source", "dispute")
+            # a fill is only as good as the WEAKEST channel vouching for the absence:
+            # if any census channel is inferred/reasoned/declared-silver, fills are
+            # silver too — never dependent on manifest key order
+            realized = all(s.get("mode") != "infer" and not s.get("reasoner")
+                           and s.get("fidelity") != "silver" for s in census_specs)
             for key, d in list(STORE.decisions.items()):
                 if key not in seen and key not in STORE.outcomes:
-                    self._sync_one(key, d.action, {"source": source}, 0.0)
+                    self._sync_one(key, d.action, {"source": source}, 0.0,
+                                   realized=realized)
                     totals["census_correct"] += 1
         return totals
+
+    def _fetch_rows(self, tool, spec):
+        """All outcome rows for one spec, following `paginate` when declared:
+        {"cursor": "result.<next-cursor field>", "arg": "<request argument>"} — the tool
+        is re-called with the previous response's cursor until it comes back empty."""
+        pag = spec.get("paginate")
+        args = dict(spec.get("arguments") or {})
+        rows = []
+        cursors = set()                         # a server echoing the same cursor
+        for _ in range(1000 if pag else 1):     # hard cap: a cursor that never ends
+            data = _result_data(self.call_downstream(tool, args))
+            page = _resolve(spec.get("items", "result"), {"result": data})
+            rows.extend(page if isinstance(page, list) else [])
+            if not pag:
+                break
+            cursor = _resolve(pag.get("cursor"), {"result": data})
+            if not cursor or cursor in cursors:
+                break
+            cursors.add(cursor)
+            args[pag.get("arg", "cursor")] = cursor
+        return rows
+
+    def _row_roots(self, row, spec, joined):
+        roots = {"item": row}
+        if joined is not None:
+            j = _resolve(spec["join"].get("left"), roots)
+            roots["join"] = joined.get(str(j), {})
+        return roots
+
+    def _latest_rows(self, rows, spec, joined=None):
+        """One row per business_key: a duplicated key is usually a REVISED ruling (an
+        appeal) — counting both would double-count and could resurrect a superseded
+        verdict. `"latest_by": "item.<field>"` keeps the row with the greatest value
+        (numeric values compare numerically, strings — ISO timestamps — as text).
+        Without it, a FINAL row (status in the manifest's vocab) outranks a non-final
+        one — a still-open second dispute must not erase a resolved verdict — and
+        later list order breaks ties (the importer's rule). Rows whose business_key
+        doesn't resolve are dropped, as the per-row loop would skip them anyway."""
+        order = spec.get("latest_by")
+        final_statuses = set(spec.get("error_statuses") or []) \
+            | set(spec.get("correct_statuses") or [])
+        best = {}                               # key -> (rank, row)
+        for i, row in enumerate(rows):
+            roots = self._row_roots(row, spec, joined)
+            key = _resolve(spec.get("business_key"), roots)
+            if key is None:
+                continue
+            key = str(key)
+            if order:
+                r = _resolve(order, roots)
+                num = _as_number(r)
+                rank = (1, 1, num, "", i) if num is not None else \
+                    (1, 0, 0.0, "" if r is None else str(r), i)
+            else:
+                status = _resolve(spec.get("status"), roots)
+                final = 1 if str(status) in final_statuses else 0
+                rank = (final, 0, 0.0, "", i)
+            if key not in best or rank >= best[key][0]:
+                best[key] = (rank, row)
+        return [row for _, row in best.values()]
+
+    def _fetch_join(self, join):
+        """The outcome's dollar (or evidence) can live in a SECOND read: `join` declares
+        {"tool", "items", "left", "right"} — fetch the other tool's rows once, index them
+        by `right`, and each outcome row's `left` value selects its joined row, exposed
+        to the spec's paths under the `join.` root (e.g. "loss": "join.amount")."""
+        if not join:
+            return None
+        lookup = {}
+        for row in self._fetch_rows(join.get("tool"), join):
+            k = _resolve(join.get("right"), {"item": row})
+            if k is not None:
+                lookup[str(k)] = row
+        return lookup
+
+    def _sync_inferred(self, key, spec, roots, totals):
+        """One infer-mode row: read the evidence, infer the outcome, estimate the loss.
+        With `"reasoner"` declared, the judgment comes from a reasoning agent (env
+        `AGENTLOSS_REASONER=path.py:fn`) instead of the marker vocabulary — for
+        evidence too ambiguous to keyword-match. Either way the verdict is silver."""
+        paths = spec.get("evidence") or []
+        paths = [paths] if isinstance(paths, str) else paths
+        evidence = " | ".join(str(v) for p in paths
+                              if (v := _resolve(p, roots)) is not None)
+        loss = _resolve(spec.get("loss"), roots)
+        var = self._value_at_risk(key) \
+            if spec.get("loss_fallback", "value_at_risk") == "value_at_risk" else None
+        if spec.get("reasoner"):
+            self._sync_reasoned(key, spec, evidence, var, totals)
+            return
+        v = infer_outcome(evidence,
+                          loss=None if loss is None else
+                          float(loss) / float(spec.get("amount_divisor", 1)),
+                          value_at_risk=var,
+                          error_markers=spec.get("error_markers"),
+                          correct_markers=spec.get("correct_markers"))
+        if v["ground_truth"] is None:
+            totals["skipped_nonfinal"] += 1
+            return
+        totals["inferred"] += 1
+        if v["ground_truth"] == "reject":
+            self._sync_one(key, "reject", spec, v["estimated_loss_usd"],
+                           realized=False, confidence=v["confidence"])
+            totals["errors"] += 1
+        else:
+            self._sync_one(key, self._action_of(key), spec, 0.0,
+                           realized=False, confidence=v["confidence"])
+            totals["correct"] += 1
+
+    def _sync_reasoned(self, key, spec, evidence, var, totals):
+        """Judge one row with the reasoning agent. Its verdicts are the SDK reasoner
+        contract ({"should_have_been", "estimated_loss", "confidence"}, see
+        detectors/reasoning.py); anything else is non-final. Missing reasoner: the rows
+        stay non-final and the sync payload says so — never a fabricated verdict."""
+        reasoner = self._load_reasoner()
+        if reasoner is None:
+            totals["skipped_nonfinal"] += 1
+            totals["reasoner_unavailable"] = totals.get("reasoner_unavailable", 0) + 1
+            return
+        try:
+            verdict = reasoner(evidence, {"business_key": key,
+                                          "value_at_risk": var}) or {}
+        except Exception:
+            totals["skipped_nonfinal"] += 1
+            return
+        judgment = str(verdict.get("should_have_been") or "").lower()
+        if judgment not in ("approve", "reject"):
+            totals["skipped_nonfinal"] += 1
+            return
+        totals["inferred"] += 1
+        confidence = verdict.get("confidence")     # 0.0 is a real (no-trust) value
+        confidence = 0.7 if confidence is None else float(confidence)
+        if judgment == "reject":
+            est = verdict.get("estimated_loss")    # 0.0 is a real ($0 loss) figure
+            try:
+                est = None if est is None else float(est)
+            except (TypeError, ValueError):
+                est = None
+            if est is None:
+                est = var or 0.0               # no figure given: the conservative bound
+            self._sync_one(key, "reject", spec, est, realized=False,
+                           confidence=confidence)
+            totals["errors"] += 1
+        else:
+            self._sync_one(key, self._action_of(key), spec, 0.0, realized=False,
+                           confidence=confidence)
+            totals["correct"] += 1
+
+    _REASONER_UNSET = object()
+    _reasoner_cache = _REASONER_UNSET
+
+    def _load_reasoner(self):
+        """The reasoning agent, from AGENTLOSS_REASONER="path/to/file.py:function".
+        A file path (not a module) so any project-local or vendored reasoner works
+        without packaging; the LLM-backed one is a file like any other."""
+        if self._reasoner_cache is not Gateway._REASONER_UNSET:
+            return self._reasoner_cache
+        target = os.environ.get("AGENTLOSS_REASONER", "")
+        path, _, fn = target.partition(":")
+        reasoner = None
+        if path and fn:
+            try:
+                import importlib.util
+                module_spec = importlib.util.spec_from_file_location(
+                    "agentloss_reasoner", path)
+                module = importlib.util.module_from_spec(module_spec)
+                module_spec.loader.exec_module(module)
+                reasoner = getattr(module, fn)
+            except Exception:
+                reasoner = None
+        self._reasoner_cache = reasoner
+        return reasoner
+
+    def _value_at_risk(self, key):
+        d = STORE.decisions.get(key)
+        return d.value_at_risk_usd if d else 0.0
 
     def _action_of(self, key):
         d = STORE.decisions.get(key)
         return d.action if d else "approve"
 
-    def _sync_one(self, key, ground_truth, spec, loss):
+    def _sync_one(self, key, ground_truth, spec, loss, realized=True, confidence=1.0):
+        """realized=True: gold ground truth, realized dollars. realized=False: an inferred
+        or estimated outcome — silver, the dollars count as expected loss only. A spec
+        that declares `"fidelity": "silver"` (e.g. a status vocabulary LEARNED at init
+        and not yet reviewed) is silver regardless — heuristic mappings must not book
+        realized P&L until a human promotes them."""
+        if spec.get("fidelity") == "silver":
+            realized = False
         report_outcome(key, ground_truth=ground_truth,
-                       source=spec.get("source", "dispute"), fidelity="gold",
-                       realized_loss_usd=loss, estimated_loss_usd=loss)
+                       source=spec.get("source", "dispute"),
+                       fidelity="gold" if realized else "silver",
+                       confidence=confidence,
+                       realized_loss_usd=loss if realized else None,
+                       estimated_loss_usd=loss)
         if self.store_path:
             append_outcome(key, STORE.outcomes[key], self.store_path)
 

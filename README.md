@@ -54,7 +54,8 @@ record_outcomes([
 
 Report the outcomes that **agreed** with the agent too, not only the disputes — the rate's
 denominator is *reported approvals*, so reporting only errors makes it read ~100%. `source`
-is one of `recovery_audit | dispute | chargeback | refund | human_queue | verification_agent`.
+is one of `recovery_audit | dispute | chargeback | refund | human_queue | verification_agent |
+inferred` (the last two are silver: their dollars flow through *expected* loss, never realized).
 
 It computes the error rate by segment (with confidence intervals), **realized + expected dollar
 loss**, and the agent's incremental risk vs. a baseline. Raw prompts/records stay in your
@@ -90,12 +91,22 @@ agentloss gateway init --out my.manifest.json -- <your server command>
 ```
 
 `init` classifies the money-movers from the server's own `tools/list`, probes the reversal
-reads to derive the row paths from real data, and marks anything it can't establish with an
-explicit `_todo`. Ready-made manifests for known servers live in [`manifests/`](manifests/).
+reads to derive the row paths from real data, emits a `business_context` block (the domain it
+understood, each outcome channel's mode) so the onboarding judgment is reviewable, and marks
+anything it can't establish with an explicit `_todo`. Ready-made manifests for known servers
+live in [`manifests/`](manifests/).
+
+**No outcome data to look up?** Some SoRs write the resolution as free text and no dollar
+figure. Declare the outcome tool with `"mode": "infer"` (`init` drafts this itself when it
+probes text-only rows) and the gateway **infers the outcome and estimates the loss** —
+parsed from the evidence, else bounded by the decision's value-at-risk — recorded as silver
+so estimated dollars flow through *expected* loss, never passed off as realized.
 
 See [`docs/GATEWAY.md`](docs/GATEWAY.md); proven end-to-end by
-[`examples/gateway_eval.py`](examples/gateway_eval.py) and
-[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py) (oracle evals, in CI).
+[`examples/gateway_eval.py`](examples/gateway_eval.py),
+[`examples/gateway_init_eval.py`](examples/gateway_init_eval.py), and — up eight rungs of
+SoR mess with zero hand-written config — the synthetic SoR ladder
+([`examples/sor_ladder_eval.py`](examples/sor_ladder_eval.py)) (oracle evals, in CI).
 
 ## Ground truth, in whatever shape you have it
 

@@ -97,7 +97,7 @@ report_outcome(
     ground_truth="duplicate-should-block",
     realized_loss_usd=14200,
     recovery_usd=0,
-    source="recovery_audit",   # recovery_audit | dispute | chargeback | refund | human_queue | verification_agent
+    source="recovery_audit",   # recovery_audit | dispute | chargeback | refund | human_queue | verification_agent | inferred
 )
 
 # or a whole disputes-table join, as a one-liner

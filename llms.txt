@@ -81,9 +81,12 @@ skip instrumentation entirely — run the agentloss gateway in front of that ser
 
 A JSON manifest (a pack, as data) declares the consequential tools (paths to the amount and
 business key in `arguments`/`result`) and the reversal tool (`error_statuses`/`correct_statuses`
--> gold ground truth). Draft it FROM the server itself — `agentloss gateway init --out m.json
+-> gold ground truth; or `"mode": "infer"` when the rows are free text — the outcome is
+inferred and the loss estimated from the evidence, else the decision's value-at-risk, recorded
+silver). Draft it FROM the server itself — `agentloss gateway init --out m.json
 -- <server command>` (or `--url https://...` for a hosted server) reads tools/list, classifies
-the money-movers, probes the reversal reads, and marks anything unresolved with `_todo`;
+the money-movers, probes the outcome reads (drafting `mode: infer` for text-only rows), emits a
+reviewable `business_context` block, and marks anything unresolved with `_todo`;
 ready-made manifests are in `manifests/`. The
 gateway records a decision per consequential `tools/call`, injects
 `agentloss_report` / `agentloss_doctor` / `agentloss_sync_outcomes` / `agentloss_record_outcome`
