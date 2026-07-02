@@ -33,6 +33,10 @@ numbers compared against one oracle:
   newest-first, so "last row wins" picks the STALE ruling and counting every row
   double-counts. Onboarding must spot the duplicates and the `revised_at` field;
   sync must keep only each payment's latest ruling.
+- **level 7 — evidence beyond the vocabulary**: `list_support_tickets` threads are
+  customer-service prose with no marker language at all — a REASONING AGENT must
+  judge them (`AGENTLOSS_REASONER`), its verdicts are silver, and its fallibility is
+  corrected by two-phase calibration against a small gold budget.
 
 The oracle rule (same at every level, keyed on the customer suffix):
 `-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
@@ -73,6 +77,7 @@ LEVELS = {
         {"cursor": {"type": "string", "description": "Opaque page cursor."}}),
     5: ("list_return_cases", "Return cases opened against payments.", None),
     6: ("list_dispute_rulings", "Dispute rulings, including revisions on appeal.", None),
+    7: ("list_support_tickets", "Support tickets about charges.", None),
 }
 PAGE_SIZE = 2
 AMOUNTS_TOOL = {"name": "list_settlement_amounts",
@@ -83,6 +88,8 @@ AMOUNTS_TOOL = {"name": "list_settlement_amounts",
 def _rows(level):
     if level == 6:
         return _ruling_rows()
+    if level == 7:
+        return _ticket_rows()
     split = level == 5                      # level 5 = level 0 verdicts, dollar elsewhere
     level = 0 if level in (4, 5) else level  # levels 4/5 reuse level 0's row shapes
     rows = []
@@ -176,6 +183,28 @@ def _ruling_rows():
     return rows
 
 
+def _ticket_rows():
+    """Level 7: support-thread prose with NO marker language — only a reasoning agent
+    can judge these (and the eval's mock reasoner errs on two of them, on purpose)."""
+    threads = {
+        "-fraud": "customer reported an unrecognized charge; we confirmed our "
+                  "processing mistake and made things right with the customer",
+        "-partial": "long call with the customer; a goodwill gesture was applied "
+                    "to the account after review",
+        "-won": "customer inquiry closed; charge verified with the customer and "
+                "billed as agreed",
+        "-contested": "customer insisted there was a processing mistake; we reviewed "
+                      "the account thoroughly with them",
+        "-pending": "ticket open — awaiting a response from the customer",
+    }
+    rows = []
+    for pid, amount, currency, customer in PAYMENTS:
+        thread = next((t for s, t in threads.items() if customer.endswith(s)), None)
+        if thread is not None:
+            rows.append({"payment_id": pid, "thread": thread})
+    return rows
+
+
 def _settlement_amounts():
     """Level 5's sibling read: the dollar for each case, keyed by case_id."""
     rows = []
@@ -209,7 +238,8 @@ def call_tool(level, name, args):
     if name == outcome_tool:
         key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
                "list_case_notes": "cases", "list_dispute_settlements": "settlements",
-               "list_return_cases": "cases", "list_dispute_rulings": "rulings"}[outcome_tool]
+               "list_return_cases": "cases", "list_dispute_rulings": "rulings",
+               "list_support_tickets": "tickets"}[outcome_tool]
         rows = _rows(level)
         if level == 4:      # served in pages; the cursor is an opaque offset
             start = int(args.get("cursor") or 0)

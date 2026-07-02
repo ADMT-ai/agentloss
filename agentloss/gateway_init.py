@@ -428,6 +428,7 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                                  "row in list order will win.")
                         if status is None and evidence:
                             # no enum to look up — soft outcomes: infer from the text
+                            from .inference import infer_outcome
                             spec["mode"] = "infer"
                             spec["source"] = "inferred"
                             spec["evidence"] = [f"item.{f}" for f in evidence]
@@ -439,6 +440,20 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                              "error's loss will be parsed from the "
                                              "evidence text, else estimated at the "
                                              "decision's value-at-risk.")
+                            judged = [infer_outcome(" | ".join(
+                                str(r[f]) for f in evidence if r.get(f) is not None))
+                                ["ground_truth"] for r in rows]
+                            if all(v is None for v in judged):
+                                # the vocabulary reads NONE of it — needs a reasoner
+                                spec["reasoner"] = "llm"
+                                spec["source"] = "verification_agent"
+                                notes.append(
+                                    f"{name}: the marker vocabulary judged 0 of "
+                                    f"{len(rows)} probed rows — evidence needs a "
+                                    "reasoning agent (set AGENTLOSS_REASONER="
+                                    "path.py:fn). Verdicts are silver; calibrate "
+                                    "against a small gold budget (agentloss."
+                                    "calibrate) for the honest number.")
                             probed = True
                             manifest["outcomes"][name] = spec
                             continue

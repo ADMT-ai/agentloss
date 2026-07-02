@@ -19,6 +19,11 @@ Every system of record writes its outcomes differently; the ladder proves the sa
     level 6 — revised rulings                 -> the same payment appears twice
                                                  (appeal history, newest first); only
                                                  the latest ruling may count
+    level 7 — evidence beyond the vocabulary  -> support-thread prose judged by a
+                                                 REASONING AGENT (mock here, Claude in
+                                                 production); its fallible silver
+                                                 verdicts are bias-corrected by
+                                                 two-phase calibration to the oracle
 
 Per level, with zero hand-written config:
 1. **Onboard**: `agentloss gateway init` against the seeded server; assert it understood
@@ -60,8 +65,14 @@ ORACLE_RATE = ORACLE_ERRORS / (ORACLE_DECISIONS - ORACLE_NONFINAL)
 
 OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_notes",
                  3: "list_dispute_settlements", 4: "list_disputes",
-                 5: "list_return_cases", 6: "list_dispute_rulings"}
+                 5: "list_return_cases", 6: "list_dispute_rulings",
+                 7: "list_support_tickets"}
 GOLD_LEVELS = (0, 3, 4, 5, 6)   # rungs whose execution yields gold, realized dollars
+# level 7's mock reasoner is deliberately fallible: it estimates 700 for the fraud loss
+# and 300 for a false alarm -> raw silver dollars read 1000, and calibration must
+# correct them back to the 1100 oracle
+L7_RAW_EXPECTED = 700.0 + 300.0
+MOCK_REASONER = os.path.join(ROOT, "examples", "gateway", "mock_reasoner.py")
 
 _checks = []
 
@@ -145,12 +156,21 @@ def onboard(level, tmp):
         # revision field makes the latest ruling win
         check("L6 onboard: revisions spotted, ordering field declared",
               out.get("latest_by") == "item.revised_at", json.dumps(out))
+    if level == 7:
+        check("L7 onboard: evidence = the thread", out.get("evidence") == ["item.thread"],
+              json.dumps(out))
+        check("L7 onboard: vocabulary judged nothing -> reasoner declared",
+              out.get("reasoner") == "llm", json.dumps(out))
+        check("L7 onboard: reasoned verdicts routed to the calibration source",
+              out.get("source") == "verification_agent", json.dumps(out))
     return manifest_path
 
 
 def execute_and_deliver(level, manifest_path, tmp):
     """Stages 2+3 — run the agent under the drafted manifest; read the number back."""
     store = os.path.join(tmp, f"l{level}.store.jsonl")
+    if level == 7:      # the reasoning agent the gateway subprocess will load
+        os.environ["AGENTLOSS_REASONER"] = f"{MOCK_REASONER}:reasoner"
     client = Client([sys.executable, "-m", "agentloss.gateway",
                      "--manifest", manifest_path, "--store", store,
                      "--", sys.executable, SERVER, "--level", str(level)])
@@ -184,8 +204,10 @@ def execute_and_deliver(level, manifest_path, tmp):
         check(f"L{level} deliver: oracle realized loss (gold)",
               abs(r["realized_loss_usd"] - ORACLE_LOSS) < 1e-6, str(r["realized_loss_usd"]))
     else:
-        check(f"L{level} deliver: inferred dollars are EXPECTED loss",
-              abs(r["expected_loss_usd"] - ORACLE_LOSS) < 1e-6, str(r["expected_loss_usd"]))
+        expected = L7_RAW_EXPECTED if level == 7 else ORACLE_LOSS
+        check(f"L{level} deliver: inferred dollars are EXPECTED loss"
+              + (" (raw = biased, by design)" if level == 7 else ""),
+              abs(r["expected_loss_usd"] - expected) < 1e-6, str(r["expected_loss_usd"]))
         check(f"L{level} deliver: no realized dollars claimed",
               abs(r["realized_loss_usd"]) < 1e-9, str(r["realized_loss_usd"]))
 
@@ -220,6 +242,52 @@ def check_silver_semantics(store):
           0 < (o_fraud.get("confidence") or 0) < 1.0, json.dumps(o_fraud))
 
 
+def check_calibration(store):
+    """The honesty loop, closed: the fallible reasoner's silver verdicts (one miss, one
+    false alarm, biased dollars) are two-phase-calibrated against a small gold budget —
+    here the oracle plays the human reviewer — and the TRUE rate and dollars come back."""
+    import random
+
+    import agentloss
+    from agentloss.calibration import calibrate
+    from agentloss.core import STORE
+    from agentloss.report import Params
+
+    STORE.decisions.clear()
+    STORE.outcomes.clear()
+    agentloss.load_store(store)
+    rows = [json.loads(l) for l in open(store) if l.strip()]
+    keys = [r["business_key"] for r in rows if r["type"] == "decision"]
+    cust = {keys[i]: PAYMENTS[i][0] for i in range(len(keys))}
+    amounts = dict(PAYMENTS)
+
+    def gold_action(key):
+        c = cust.get(key, "")
+        return "reject" if c.endswith(("-fraud", "-partial")) else "approve"
+
+    def gold_loss(key):
+        c = cust.get(key, "")
+        if c.endswith("-fraud"):
+            return amounts[c]
+        if c.endswith("-partial"):
+            return round(amounts[c] * 0.4, 2)
+        return 0.0
+
+    res = calibrate(gold_action, gold_loss, Params(cal_q=1.0), random.Random(0))
+    check("L7 calibrate: reasoner precision measured (1 TP, 1 false alarm)",
+          abs(res["precision"] - 0.5) < 1e-9, json.dumps(res))
+    check("L7 calibrate: reasoner recall measured (1 caught, 1 missed)",
+          abs(res["recall"] - 0.5) < 1e-9, json.dumps(res))
+    check("L7 calibrate: corrected rate = the truth over all approvals",
+          abs(res["corrected_rate"] - ORACLE_ERRORS / ORACLE_DECISIONS) < 1e-9,
+          json.dumps(res))
+    check("L7 calibrate: corrected dollars = the oracle loss",
+          abs(res["corrected_loss"] - ORACLE_LOSS) < 1e-6, json.dumps(res))
+    check("L7 calibrate: CI covers the truth",
+          res["rate_lo"] <= ORACLE_ERRORS / ORACLE_DECISIONS <= res["rate_hi"],
+          json.dumps(res))
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="agentloss_ladder_")
     silver_store = None
@@ -229,6 +297,8 @@ def main():
         if level == 2:
             silver_store = store
             check_silver_semantics(store)
+        if level == 7:
+            check_calibration(store)
 
     # out-of-process readout of the estimated-loss rung: replay the persisted store here
     import agentloss

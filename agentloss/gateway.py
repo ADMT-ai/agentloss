@@ -22,6 +22,7 @@ server (`--url`, stdlib urllib — see gateway_http.py). Only `tools/list` respo
 path or unparsable result never blocks the business call.
 """
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -447,8 +448,10 @@ class Gateway:
         return lookup
 
     def _sync_inferred(self, key, spec, roots, seen, totals):
-        """One infer-mode row: read the evidence, infer the outcome, estimate the loss."""
-        from .inference import infer_outcome
+        """One infer-mode row: read the evidence, infer the outcome, estimate the loss.
+        With `"reasoner"` declared, the judgment comes from a reasoning agent (env
+        `AGENTLOSS_REASONER=path.py:fn`) instead of the marker vocabulary — for
+        evidence too ambiguous to keyword-match. Either way the verdict is silver."""
         paths = spec.get("evidence") or []
         paths = [paths] if isinstance(paths, str) else paths
         evidence = " | ".join(str(v) for p in paths
@@ -456,13 +459,17 @@ class Gateway:
         loss = _resolve(spec.get("loss"), roots)
         var = self._value_at_risk(key) \
             if spec.get("loss_fallback", "value_at_risk") == "value_at_risk" else None
+        seen.add(key)          # even a non-final case note takes the key out of the census
+        if spec.get("reasoner"):
+            self._sync_reasoned(key, spec, evidence, var, totals)
+            return
+        from .inference import infer_outcome
         v = infer_outcome(evidence,
                           loss=None if loss is None else
                           float(loss) / float(spec.get("amount_divisor", 1)),
                           value_at_risk=var,
                           error_markers=spec.get("error_markers"),
                           correct_markers=spec.get("correct_markers"))
-        seen.add(key)          # even a non-final case note takes the key out of the census
         if v["ground_truth"] is None:
             totals["skipped_nonfinal"] += 1
             return
@@ -475,6 +482,68 @@ class Gateway:
             self._sync_one(key, self._action_of(key), spec, 0.0,
                            realized=False, confidence=v["confidence"])
             totals["correct"] += 1
+
+    def _sync_reasoned(self, key, spec, evidence, var, totals):
+        """Judge one row with the reasoning agent. Its verdicts are the SDK reasoner
+        contract ({"should_have_been", "estimated_loss", "confidence"}, see
+        detectors/reasoning.py); anything else is non-final. Missing reasoner: the rows
+        stay non-final and the sync payload says so — never a fabricated verdict."""
+        reasoner = self._load_reasoner()
+        if reasoner is None:
+            totals["skipped_nonfinal"] += 1
+            totals["reasoner_unavailable"] = totals.get("reasoner_unavailable", 0) + 1
+            return
+        try:
+            verdict = reasoner(evidence, {"business_key": key,
+                                          "value_at_risk": var}) or {}
+        except Exception:
+            totals["skipped_nonfinal"] += 1
+            return
+        judgment = str(verdict.get("should_have_been") or "").lower()
+        if judgment not in ("approve", "reject"):
+            totals["skipped_nonfinal"] += 1
+            return
+        totals["inferred"] += 1
+        confidence = float(verdict.get("confidence", 0.7) or 0.7)
+        if judgment == "reject":
+            try:
+                est = float(verdict.get("estimated_loss", 0) or 0)
+            except (TypeError, ValueError):
+                est = 0.0
+            if not est and var:
+                est = var                      # the conservative bound, as elsewhere
+            self._sync_one(key, "reject", spec, est, realized=False,
+                           confidence=confidence)
+            totals["errors"] += 1
+        else:
+            self._sync_one(key, self._action_of(key), spec, 0.0, realized=False,
+                           confidence=confidence)
+            totals["correct"] += 1
+
+    _REASONER_UNSET = object()
+    _reasoner_cache = _REASONER_UNSET
+
+    def _load_reasoner(self):
+        """The reasoning agent, from AGENTLOSS_REASONER="path/to/file.py:function".
+        A file path (not a module) so any project-local or vendored reasoner works
+        without packaging; the LLM-backed one is a file like any other."""
+        if self._reasoner_cache is not Gateway._REASONER_UNSET:
+            return self._reasoner_cache
+        target = os.environ.get("AGENTLOSS_REASONER", "")
+        path, _, fn = target.partition(":")
+        reasoner = None
+        if path and fn:
+            try:
+                import importlib.util
+                module_spec = importlib.util.spec_from_file_location(
+                    "agentloss_reasoner", path)
+                module = importlib.util.module_from_spec(module_spec)
+                module_spec.loader.exec_module(module)
+                reasoner = getattr(module, fn)
+            except Exception:
+                reasoner = None
+        self._reasoner_cache = reasoner
+        return reasoner
 
     def _value_at_risk(self, key):
         d = STORE.decisions.get(key)

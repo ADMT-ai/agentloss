@@ -177,6 +177,17 @@ up (`agentloss.inference` — deterministic marker vocabulary, overridable per m
   off as a looked-up one. Feed them through sampling + two-phase calibration
   (`agentloss.calibrate`) to bias-correct against a small gold budget, exactly as with a
   fallible verifier.
+- **A reasoning agent, when the vocabulary can't read it**: evidence written as
+  customer-service prose matches no marker. Declare `"reasoner": "llm"` (init drafts it
+  when the vocabulary judges zero probed rows) and point `AGENTLOSS_REASONER=path.py:fn`
+  at a reasoning agent — the SDK reasoner contract
+  (`{"should_have_been", "estimated_loss", "confidence"}`, detectors/reasoning.py); an
+  LLM-backed one is a file like any other. Verdicts land under
+  `source: "verification_agent"`, so `agentloss.calibrate` corrects the reasoner's
+  misses, false alarms, and dollar bias against a small gold budget — proven end-to-end
+  on ladder level 7 with a deliberately fallible mock. No reasoner configured → the rows
+  stay non-final and the sync payload says `reasoner_unavailable`, never a fabricated
+  verdict.
 
 ### Writing a manifest for a new server: `gateway init`
 
@@ -280,8 +291,10 @@ MCP. Both write the same shapes; both are honest about the denominator.
   sync); level 5 outcome split across two tools (the join is discovered at onboarding —
   including picking the id that joins back to the decisions, not the case — and executed
   at sync); level 6 revised rulings (the appeal history duplicates keys, newest served
-  first — only each payment's latest ruling counts). Per rung it runs the whole agentic
-  loop with zero
+  first — only each payment's latest ruling counts); level 7 evidence beyond the
+  vocabulary (a deliberately fallible reasoning agent judges support threads; two-phase
+  calibration recovers the exact oracle rate and dollars from its biased silver
+  verdicts). Per rung it runs the whole agentic loop with zero
   hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
   report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
   loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
@@ -313,4 +326,7 @@ MCP. Both write the same shapes; both are honest about the denominator.
   ~~paginated outcome reads~~ (✅ 0.0.20: `paginate` — cursor detected at init, followed at
   sync), ~~outcomes split across tools~~ (✅ 0.0.21: `join` — discovered at init, executed at
   sync), ~~delayed/duplicated resolutions~~ (✅ 0.0.22: `latest_by` — revisions deduped,
-  latest ruling wins), and a live-LLM reasoner rung measured against the same oracle.
+  latest ruling wins), ~~a reasoner rung measured against the same oracle~~ (✅ 0.0.23:
+  `reasoner` + `AGENTLOSS_REASONER` + calibration, mock-proven in CI). Still open: a
+  shipped Claude-backed reasoner file (the hook takes any), and manifests for more real
+  servers.
