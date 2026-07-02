@@ -164,8 +164,9 @@ review sample at known pi / reconciliation / chargebacks; silver = inferred from
 prose, calibrated). `agentloss underwrite --store s.jsonl --json` renders exposure,
 wrongful-grant frequency (CI + HT-reweighted), severity, realized/expected loss,
 loss-to-exposure, per-decider segments, and the QUALIFICATION findings; exits 1 if the
-record does not qualify. NO loss history yet? `agentloss backfill --csv history.csv
---map "business_key=<col>,amount=<col>,decider=<col>,evidence=<col>" --store s.jsonl`
+record does not qualify. NO loss history yet? `agentloss backfill --csv history.csv --store s.jsonl` (omit --map: the mapping is
+drafted from the export's own header — Zendesk/Intercom/Front conventions recognized;
+a workflow status column is never mistaken for a ruling)
 builds the record RETROACTIVELY from the SoR's own historical export — outcomes
 adjudicated from the prose — then `underwrite --agent <decider> --baseline <decider>`
 prices the agent against the human team it replaced (day-one actuarial history).

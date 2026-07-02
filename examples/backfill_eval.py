@@ -34,18 +34,20 @@ CORRECT = "reviewed: no merchant error, case closed in merchant favor"
 OPEN = "case open, awaiting customer evidence"
 
 
-def write_history(path):
+def write_history(path, header=("ticket_id", "refund_amount", "agent_name",
+                                "resolution_notes"), extra=()):
     rows = []
     for i in range(1, 9):       # the human team's history
         note = WRONGFUL.format(loss=60.0) if i <= 2 else CORRECT if i <= 7 else OPEN
-        rows.append((f"H{i}", "100.00", "human_team", note))
+        rows.append([f"H{i}", "100.00", "human_team", note])
     for i in range(1, 11):      # the agent's history
         note = WRONGFUL.format(loss=40.0) if i == 1 else CORRECT if i <= 9 else OPEN
-        rows.append((f"A{i}", "100.00", "support_agent", note))
+        rows.append([f"A{i}", "100.00", "support_agent", note])
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["ticket_id", "refund_amount", "agent_name", "resolution_notes"])
-        w.writerows(rows)
+        w.writerow(list(header) + [c for c, _ in extra])
+        for i, row in enumerate(rows):
+            w.writerow(row + [fill(i) for _, fill in extra])
 
 
 def main():
@@ -116,6 +118,49 @@ def main():
           str(b))
     check("funnel: the requirement names the gateway",
           "gateway" in (b["requirement"] or ""), str(b))
+
+    # ZERO-CONFIG: a Zendesk-shaped export (different header names, workflow-status and
+    # subject noise columns) with NO --map must draft the mapping itself and recover the
+    # identical oracle — bare "Status" (open/solved) must NOT be mistaken for a ruling
+    zd = os.path.join(tmp, "zendesk.csv")
+    store2 = os.path.join(tmp, "store2.jsonl")
+    write_history(zd, header=("Ticket Id", "Refund Amount", "Assignee",
+                              "Resolution Notes"),
+                  extra=(("Status", lambda i: "solved" if i % 3 else "closed"),
+                         ("Subject", lambda i: f"Refund request #{i}")))
+    proc = subprocess.run(
+        [sys.executable, "-m", "agentloss.cli", "backfill", "--csv", zd,
+         "--store", store2, "--json"],
+        capture_output=True, text=True, timeout=60)
+    check("zero-config: backfill exits 0 with no --map", proc.returncode == 0,
+          proc.stderr)
+    check("zero-config: the drafted map is announced",
+          "drafted from the header" in proc.stderr and "Resolution Notes" in proc.stderr,
+          proc.stderr)
+    counts2 = json.loads(proc.stdout)
+    check("zero-config: identical adjudication", counts2 == counts,
+          f"{counts2} vs {counts}")
+    html_path = os.path.join(tmp, "report.html")
+    proc = subprocess.run(
+        [sys.executable, "-m", "agentloss.cli", "underwrite", "--store", store2,
+         "--agent", "support_agent", "--baseline", "human_team", "--json",
+         "--html", html_path],
+        capture_output=True, text=True, timeout=60)
+    r2 = json.loads(proc.stdout)
+    check("zero-config: identical segment truths",
+          abs(r2["segments"]["support_agent"]["loss_to_exposure"] - 0.04) < 1e-9
+          and abs(r2["segments"]["human_team"]["loss_to_exposure"] - 0.15) < 1e-9,
+          str(r2["segments"]))
+
+    # the artifact: the same truths, rendered for a human decision-maker
+    page = open(html_path, encoding="utf-8").read()
+    for needle in ("Insurability report", "QUALIFIES", "ASSESSMENT", "$1.8K",
+                   "4.0%", "15.0%", "cheaper to insure than",
+                   "silver_uncalibrated", "install the middleware"):
+        check(f"html: carries '{needle}'", needle in page, html_path)
+    check("html: self-contained (no external assets)",
+          "http" not in page.split("github.com")[0].split("<body")[0]
+          .replace("http-equiv", ""), html_path)
 
     n_fail = sum(1 for ok in _checks if not ok)
     print(f"\n{len(_checks) - n_fail}/{len(_checks)} checks pass")

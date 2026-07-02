@@ -16,10 +16,12 @@ tickets. Soft outcomes (docs/GATEWAY.md), monetary-unit sampling, and two-phase 
 ## The funnel: assess, then bind
 
 **1. Assess — prove you're coverable, before installing anything.** Read-only, day one:
-`agentloss backfill` over the SoR's own historical export builds the record
-retroactively, `agentloss underwrite` renders it into the underwriting report +
-qualification, segmented agent-vs-human. This is the assessment an insurer prices from
-and a buyer uses to prove the agent qualifies.
+`agentloss backfill --csv history.csv --store s.jsonl` (the mapping drafts itself from
+the export's header) builds the record retroactively, and `agentloss underwrite --store
+s.jsonl --agent <bot> --baseline <team> --html report.html` renders it into the
+underwriting report + qualification, segmented agent-vs-human — including the
+self-contained HTML one-pager you hand to an underwriter or a board. This is the
+assessment an insurer prices from and a buyer uses to prove the agent qualifies.
 
 **2. Bind — coverage goes in force when the middleware does.** A policy is kept in force
 by a LIVE record, not a snapshot: binding requires the agentloss gateway installed in

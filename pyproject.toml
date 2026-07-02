@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentloss"
-version = "0.0.27"
+version = "0.0.29"
 description = "Measure the real-world error rate and dollar cost of an AI agent's decisions. OpenTelemetry-native."
 readme = "README.md"
 requires-python = ">=3.10"

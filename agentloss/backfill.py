@@ -17,16 +17,106 @@ Readout: `agentloss underwrite --store s.jsonl --agent <decider> --baseline <dec
 — day-one actuarial history plus the agent-vs-human incremental risk.
 """
 import csv
+import re
 
 from .core import STORE, Decision, report_outcome
 from .importer import parse_money
 from .inference import infer_outcome, load_reasoner
 from .persist import append_decision, append_outcome
 
-__all__ = ["backfill_csv", "backfill_rows"]
+__all__ = ["backfill_csv", "backfill_rows", "suggest_backfill_mapping"]
 
 # mapping keys: business_key + amount are required; the rest optional
 _KNOWN = ("business_key", "amount", "decider", "action", "evidence", "status")
+
+# Column-name conventions of the exports people actually have (Zendesk, Intercom,
+# Front, homegrown warehouse pulls), normalized: lowercase, non-alnum -> _.
+# Order = priority. Bare "status" is deliberately ABSENT from the status synonyms:
+# a ticket-workflow status (open/solved/closed) is not a ruling — only QA/review/audit
+# verdict columns qualify.
+_SYNONYMS = {
+    "business_key": ("ticket_id", "conversation_id", "case_id", "refund_id",
+                     "transaction_id", "ticket", "id"),
+    "amount": ("refund_amount", "credit_amount", "concession_amount", "amount_refunded",
+               "refund_total", "amount", "refund", "credit", "total", "value"),
+    "decider": ("decider", "agent_name", "assignee", "admin_assignee", "assignee_name",
+                "resolved_by", "handled_by", "agent", "owner", "author"),
+    "action": ("action", "decision"),
+    "evidence": ("resolution_notes", "resolution_note", "case_notes", "resolution",
+                 "notes", "note", "comments", "comment", "transcript", "thread",
+                 "body", "description", "summary"),
+    "status": ("qa_status", "qa_verdict", "qa_outcome", "review_status",
+               "review_outcome", "audit_status", "audit_outcome", "verdict"),
+}
+_AMOUNT_HINTS = ("amount", "refund", "credit", "value", "total")
+
+
+def _norm(col):
+    return re.sub(r"[^a-z0-9]+", "_", col.lower()).strip("_")
+
+
+def _samples(rows, col, n=50):
+    return [str(r[col]).strip() for r in rows[:n]
+            if r.get(col) not in (None, "") and str(r[col]).strip()]
+
+
+def _is_money_col(rows, col):
+    vals = _samples(rows, col)
+    return bool(vals) and all(parse_money(v) is not None for v in vals)
+
+
+def _is_text_col(rows, col):
+    vals = _samples(rows, col)
+    return bool(vals) and any(" " in v for v in vals)
+
+
+def suggest_backfill_mapping(fieldnames, sample_rows=()):
+    """Draft a backfill --map from the export's own header (+ sample rows), the
+    `gateway init` move for a file. Sample rows validate the guesses: an amount column
+    must parse as money, an evidence column must read like text. Unresolvable required
+    fields come back as '_todo: ...' strings; returns (mapping, notes)."""
+    sample_rows = list(sample_rows)
+    cols = {}                                   # normalized -> original, first wins
+    for c in fieldnames or []:
+        cols.setdefault(_norm(c), c)
+    notes = []
+
+    def pick(key, validate=None):
+        for cand in _SYNONYMS[key]:
+            col = cols.get(cand)
+            if col is not None and (validate is None or not sample_rows
+                                    or validate(sample_rows, col)):
+                return col
+        return None
+
+    mapping = {}
+    key = pick("business_key") or next(
+        (orig for norm, orig in cols.items() if norm.endswith("_id")), None)
+    mapping["business_key"] = key or "_todo: which column names the ticket/refund?"
+
+    amount = pick("amount", _is_money_col)
+    if amount is None and sample_rows:          # name hint + the samples parse as money
+        amount = next((orig for norm, orig in cols.items()
+                       if any(h in norm for h in _AMOUNT_HINTS)
+                       and _is_money_col(sample_rows, orig)), None)
+    mapping["amount"] = amount or "_todo: which column carries the concession amount?"
+
+    for optional, validate in (("decider", None), ("action", None),
+                               ("evidence", _is_text_col), ("status", None)):
+        col = pick(optional, validate)
+        if col is not None:
+            mapping[optional] = col
+    if "evidence" not in mapping and "status" not in mapping:
+        notes.append("no evidence or QA-verdict column found — every row would be "
+                     "non-final; point evidence= at the resolution text.")
+    if "decider" not in mapping:
+        notes.append("no decider column found — all history lands in one segment "
+                     "(no agent-vs-human baseline).")
+    if "status" in mapping:
+        observed = sorted(set(_samples(sample_rows, mapping["status"])))
+        notes.append(f"observed {mapping['status']} values: {', '.join(observed)} — "
+                     "pass --error-statuses / --correct-statuses from these.")
+    return mapping, notes
 
 
 def _money(value):

@@ -78,6 +78,11 @@ def _underwrite_cmd(args):
         return 2
     from .underwriting import underwriting_report
     r = underwriting_report(agent=args.agent, baseline=args.baseline)
+    if args.html:
+        from .report_html import render_html
+        with open(args.html, "w", encoding="utf-8") as f:
+            f.write(render_html(r, store_path=args.store or ""))
+        print(f"wrote {args.html}", file=sys.stderr)
     if args.json:
         print(json.dumps(r, indent=2, default=str))
     else:
@@ -120,8 +125,28 @@ def _underwrite_cmd(args):
 
 
 def _backfill_cmd(args):
-    from .backfill import backfill_csv
-    mapping = dict(part.split("=", 1) for part in args.map.split(",") if "=" in part)
+    from .backfill import backfill_csv, suggest_backfill_mapping
+    if args.map:
+        mapping = dict(part.split("=", 1) for part in args.map.split(",") if "=" in part)
+    else:
+        # zero-config: draft the mapping from the export's own header + sample rows
+        import csv as _csv
+        with open(args.csv, newline="", encoding="utf-8-sig") as f:
+            reader = _csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            sample = [row for _, row in zip(range(50), reader)]
+        mapping, notes = suggest_backfill_mapping(fieldnames, sample)
+        todos = {k: v for k, v in mapping.items() if str(v).startswith("_todo")}
+        drafted = ",".join(f"{k}={v}" for k, v in mapping.items() if k not in todos)
+        print(f"no --map given; drafted from the header: \"{drafted}\"", file=sys.stderr)
+        for note in notes:
+            print(f"  note: {note}", file=sys.stderr)
+        if todos:
+            for k, v in todos.items():
+                print(f"  {k}: {v}", file=sys.stderr)
+            print("resolve the _todo field(s) and re-run with --map.", file=sys.stderr)
+            return 2
+        mapping = {k: v for k, v in mapping.items() if k not in todos}
     try:
         counts = backfill_csv(
             args.csv, mapping, use_case=args.use_case,
@@ -217,6 +242,9 @@ def main(argv=None):
     p_uw.add_argument("--agent", help="decider segment to price (a Decision.model value)")
     p_uw.add_argument("--baseline", help="decider segment to compare against "
                                          "(e.g. the human team's backfilled history)")
+    p_uw.add_argument("--html", metavar="PATH",
+                      help="also render the report as a self-contained HTML one-pager "
+                           "(the artifact you hand to an underwriter)")
     p_uw.set_defaults(func=_underwrite_cmd)
 
     p_bf = sub.add_parser("backfill",
@@ -224,9 +252,11 @@ def main(argv=None):
                                "export — day-one actuarial history; the decider column "
                                "becomes the segment (docs/SUPPORT-CONCESSION.md)")
     p_bf.add_argument("--csv", required=True, help="the historical export")
-    p_bf.add_argument("--map", required=True,
+    p_bf.add_argument("--map",
                       help='"business_key=<col>,amount=<col>[,decider=<col>]'
-                           '[,action=<col>][,evidence=<col>][,status=<col>]"')
+                           '[,action=<col>][,evidence=<col>][,status=<col>]"; omit to '
+                           'draft it from the export\'s own header (Zendesk/Intercom/'
+                           'Front conventions recognized)')
     p_bf.add_argument("--error-statuses", help="status values meaning the decision was "
                                                "wrong (with a status column)")
     p_bf.add_argument("--correct-statuses", help="status values meaning it was right")
