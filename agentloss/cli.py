@@ -112,6 +112,10 @@ def _underwrite_cmd(args):
             if f["level"] != "ok":
                 print(f"[{f['level'].upper()}] {f['id']}: {f['message']}")
         print(f"qualifies : {'YES' if r['qualifies'] else 'NO'} (level={r['level']})")
+        b = r["binding"]
+        print(f"binding   : capture={b['capture']} — "
+              + ("BOUND-READY (live middleware capture present)" if b["bound_ready"]
+                 else "assessment only; to bind, install the gateway middleware"))
     return 0 if r["qualifies"] else 1
 
 

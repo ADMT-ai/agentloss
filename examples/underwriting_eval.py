@@ -130,6 +130,19 @@ def main():
                                       and f["level"] == "fail"
                                       for f in r3["qualification"]), str(r3["level"]))
 
+    # binding: live middleware capture (the gateway stamps model="gateway") flips the
+    # same qualifying record from assessment-grade to bound-ready
+    _reset()
+    seed_qualifying()
+    for d in STORE.decisions.values():
+        d.model = "gateway"
+    r4 = underwriting_report()
+    check("binding: live capture detected", r4["binding"]["capture"] == "live",
+          str(r4["binding"]))
+    check("binding: qualifying + live = BOUND-READY",
+          r4["binding"]["bound_ready"] is True and r4["binding"]["requirement"] is None,
+          str(r4["binding"]))
+
     # the CLI round-trip: persist the qualifying record, read it out-of-process
     _reset()
     seed_qualifying()

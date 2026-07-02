@@ -13,6 +13,24 @@ notes), losses are often implicit, and there is no census — QA reviews a few p
 tickets. Soft outcomes (docs/GATEWAY.md), monetary-unit sampling, and two-phase calibration
 (docs/SDK-SPEC.md) are exactly what turns that into an honest number.
 
+## The funnel: assess, then bind
+
+**1. Assess — prove you're coverable, before installing anything.** Read-only, day one:
+`agentloss backfill` over the SoR's own historical export builds the record
+retroactively, `agentloss underwrite` renders it into the underwriting report +
+qualification, segmented agent-vs-human. This is the assessment an insurer prices from
+and a buyer uses to prove the agent qualifies.
+
+**2. Bind — coverage goes in force when the middleware does.** A policy is kept in force
+by a LIVE record, not a snapshot: binding requires the agentloss gateway installed in
+front of the SoR's MCP server, capturing every decision as it happens and syncing
+outcomes continuously (the telematics model — no box, no coverage). The report states
+which grade of record it sees: `binding.capture` is `historical` (assessment-grade),
+`mixed`, or `live`, and `binding.bound_ready` is true only for a qualifying record with
+live middleware capture. Gateway-captured decisions are distinguishable by construction
+(`Decision.model == "gateway"`), so bind status is read from the record, never
+self-reported.
+
 ## The covered decision
 
 One record per **concession decision** — the consequential action, not the conversation:

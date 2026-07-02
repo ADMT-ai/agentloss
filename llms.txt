@@ -151,10 +151,14 @@ derived metrics leave.
 - `agentloss.*` semantic conventions carry the attributes (value-at-risk, coverage envelope,
   loss, model provenance). See docs/SDK-SPEC.md.
 
-## The insured-agent vertical: support concessions
+## The insured-agent vertical: support concessions — assess, then bind
 
 The audit record an LLM support agent writes (SDK or gateway — no agent changes) so its
-refund/credit/goodwill decisions qualify for insurance: decisions carry the concession
+refund/credit/goodwill decisions qualify for insurance. The funnel: ASSESS first
+(read-only — backfill the SoR's history, underwrite it, prove the agent is coverable),
+then BIND — coverage goes in force when the gateway middleware is installed and the
+record turns live (`binding.capture`: historical -> assessment-grade; live ->
+bound_ready). Details: decisions carry the concession
 amount as exposure and an envelope verdict; evidence is provenance-typed (gold = the QA
 review sample at known pi / reconciliation / chargebacks; silver = inferred from ticket
 prose, calibrated). `agentloss underwrite --store s.jsonl --json` renders exposure,

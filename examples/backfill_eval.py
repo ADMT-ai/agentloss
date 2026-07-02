@@ -107,6 +107,16 @@ def main():
                                        for f in r["qualification"]
                                        if f["level"] == "warn"), str(r["level"]))
 
+    # the funnel: a backfilled history is an ASSESSMENT — it qualifies you, but binding
+    # coverage requires the middleware capturing live decisions
+    b = r["binding"]
+    check("funnel: backfilled record is assessment-grade", b["capture"] == "historical",
+          str(b))
+    check("funnel: not bound-ready without the middleware", b["bound_ready"] is False,
+          str(b))
+    check("funnel: the requirement names the gateway",
+          "gateway" in (b["requirement"] or ""), str(b))
+
     n_fail = sum(1 for ok in _checks if not ok)
     print(f"\n{len(_checks) - n_fail}/{len(_checks)} checks pass")
     if n_fail:

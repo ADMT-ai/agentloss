@@ -13,6 +13,23 @@ completion. `agentloss` answers the question the market keeps asking and no tool
 
 > Part of **ADMT** (Automated Decision-Making Technology) — [admt.ai](https://admt.ai).
 
+## Assess, then bind — the path to an insured agent
+
+`agentloss` is the audit record an agentic system writes to in order to **qualify for
+coverage** ([docs/SUPPORT-CONCESSION.md](docs/SUPPORT-CONCESSION.md)):
+
+1. **Assess** (read-only, day one — nothing installed): build the record retroactively
+   from the system of record's own history and render the underwriting report —
+   `agentloss backfill --csv history.csv --map ... --store s.jsonl`, then
+   `agentloss underwrite --store s.jsonl --agent <bot> --baseline <human team>` —
+   exposure, wrongful-decision frequency, severity, loss-to-exposure, and the
+   agent-vs-human comparison. This is how you *prove* the agent is coverable.
+2. **Bind**: coverage goes in force when the **middleware** does — the agentloss gateway
+   installed in front of the SoR's MCP server, capturing every live decision and syncing
+   outcomes continuously. The report reads bind status from the record itself
+   (`binding.capture`: historical → assessment-grade; live → bound-ready). No box, no
+   coverage.
+
 ## Install
 
 ```bash

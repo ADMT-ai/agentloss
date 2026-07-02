@@ -149,8 +149,24 @@ def underwriting_report(cfg=None, agent=None, baseline=None):
 
     qual = qualification_checks() + run_checks()
     level = _worst(qual)
+    qualifies = level != "fail"
     total_exposure = sum(exposures)
     segments = _segment_stats(granting, outcomes)
+    # the funnel: an ASSESSMENT (backfilled/SDK history, read-only) proves you qualify;
+    # BINDING coverage requires the middleware — the gateway capturing decisions live,
+    # so the policy is kept in force by the record itself
+    live = sum(1 for d in decisions if d.model == "gateway")
+    capture = ("live" if live == len(decisions) else "mixed") if live else "historical"
+    binding = {
+        "capture": capture,
+        "live_decisions": live,
+        "bound_ready": bool(live) and qualifies,
+        "requirement": None if live else (
+            "assessment-grade record (historical/SDK capture only). To BIND coverage, "
+            "install the middleware: run the agentloss gateway in front of the system "
+            "of record's MCP server so every live decision is captured and outcomes "
+            "sync continuously (docs/GATEWAY.md)."),
+    }
     comparison = None
     if agent and baseline and agent in segments and baseline in segments:
         a, b = segments[agent], segments[baseline]
@@ -162,8 +178,9 @@ def underwriting_report(cfg=None, agent=None, baseline=None):
         }
     return {
         "profile": "support_concession",
-        "qualifies": level != "fail",
+        "qualifies": qualifies,
         "level": level,
+        "binding": binding,
         "exposure": {
             "decisions": len(decisions),
             "granting": len(granting),
