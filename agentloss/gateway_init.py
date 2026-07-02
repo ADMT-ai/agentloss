@@ -251,6 +251,43 @@ def _result_rows(result):
     return None, []
 
 
+# paginated outcome reads: response fields that carry the next-page cursor, and the
+# request arguments servers accept it under
+_CURSOR_KEYS = ("next_cursor", "next_page_token", "next_page", "starting_after", "cursor")
+_CURSOR_ARGS = ("cursor", "page_token", "starting_after", "after", "page")
+
+
+def _paginate_spec(result, tool):
+    """A cursor in the probed response -> the manifest `paginate` block, or None."""
+    from .gateway import _result_data
+    data = _result_data(result)
+    if not isinstance(data, dict):
+        return None
+    key = next((k for k in _CURSOR_KEYS if data.get(k)), None)
+    if key is None:
+        return None
+    props = ((tool.get("inputSchema") or {}).get("properties")) or {}
+    arg = next((a for a in _CURSOR_ARGS if a in props), "cursor")
+    return {"cursor": f"result.{key}", "arg": arg}
+
+
+def _follow_pages(call, name, first_result, paginate, max_pages=20):
+    """Collect the remaining pages' rows so classification sees the whole population,
+    not page one. Returns the extra rows."""
+    from .gateway import _result_data
+    cursor_field = paginate["cursor"].partition(".")[2]
+    rows = []
+    result = first_result
+    for _ in range(max_pages):
+        data = _result_data(result)
+        cursor = data.get(cursor_field) if isinstance(data, dict) else None
+        if not cursor:
+            break
+        result = call(name, {paginate["arg"]: cursor})
+        rows.extend(_result_rows(result)[1])
+    return rows
+
+
 def _row_paths(rows):
     """Derive item.* paths from observed reversal rows."""
     fields = set().union(*[set(r) for r in rows]) if rows else set()
@@ -301,7 +338,12 @@ def draft_manifest(tools, use_case="gateway", call=None):
             probed = False
             if call is not None and not required:
                 try:
-                    items_path, rows = _result_rows(call(name))
+                    result = call(name)
+                    items_path, rows = _result_rows(result)
+                    paginate = _paginate_spec(result, tool)
+                    if paginate and items_path is not None:
+                        spec["paginate"] = paginate
+                        rows = rows + _follow_pages(call, name, result, paginate)
                     if items_path is not None and rows:
                         key, key_todo, status, loss, observed = _row_paths(rows)
                         evidence = _evidence_fields(rows)

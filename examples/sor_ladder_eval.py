@@ -10,6 +10,9 @@ Every system of record writes its outcomes differently; the ladder proves the sa
     level 3 — unknown status vocabulary       -> onboarding LEARNS the mapping from the
                                                  rows' own text; execution runs status
                                                  mode — gold, realized dollars again
+    level 4 — paginated outcome read          -> the cursor is detected at onboarding
+                                                 and followed to the end at sync; page
+                                                 one alone would under-count
 
 Per level, with zero hand-written config:
 1. **Onboard**: `agentloss gateway init` against the seeded server; assert it understood
@@ -50,8 +53,8 @@ ORACLE_CENSUS = ORACLE_DECISIONS - ORACLE_ERRORS - ORACLE_CORRECT - ORACLE_NONFI
 ORACLE_RATE = ORACLE_ERRORS / (ORACLE_DECISIONS - ORACLE_NONFINAL)
 
 OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_notes",
-                 3: "list_dispute_settlements"}
-GOLD_LEVELS = (0, 3)        # rungs whose execution yields gold, realized dollars
+                 3: "list_dispute_settlements", 4: "list_disputes"}
+GOLD_LEVELS = (0, 3, 4)     # rungs whose execution yields gold, realized dollars
 
 _checks = []
 
@@ -88,8 +91,8 @@ def onboard(level, tmp):
           json.dumps(out))
     check(f"L{level} onboard: join key probed", out.get("business_key") == "item.payment_id",
           json.dumps(out))
-    if level == 0:
-        check("L0 onboard: statuses mapped",
+    if level in (0, 4):
+        check(f"L{level} onboard: statuses mapped",
               out.get("error_statuses") == ["lost"] and out.get("correct_statuses") == ["won"],
               json.dumps(out))
     elif level in (1, 2):
@@ -113,6 +116,11 @@ def onboard(level, tmp):
                         if c.get("tool") == tool), {})
         check("L3 onboard: business_context marks the vocabulary learned",
               channel.get("vocabulary") == "learned", json.dumps(ctx))
+    if level == 4:
+        # mapping both statuses REQUIRES following pages: page one carries only errors
+        check("L4 onboard: pagination detected and declared",
+              out.get("paginate") == {"cursor": "result.next_cursor", "arg": "cursor"},
+              json.dumps(out))
     return manifest_path
 
 

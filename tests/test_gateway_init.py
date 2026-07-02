@@ -123,3 +123,22 @@ def test_ambiguous_learned_status_lands_in_neither():
     out = m["outcomes"]["list_disputes"]
     assert out["error_statuses"] == ["SETTLED_MERCHANT_FAULT"]
     assert "CLOSED" not in out["error_statuses"] + out["correct_statuses"]
+
+
+def test_pagination_detected_and_followed():
+    pages = {None: ({"payment_id": "p1", "status": "lost", "amount": 10.0},
+                    "2"),
+             "2": ({"payment_id": "p2", "status": "won", "amount": 5.0},
+                   None)}
+
+    def call(name, arguments=None):
+        cursor = (arguments or {}).get("cursor")
+        row, nxt = pages[cursor]
+        return {"content": [{"type": "text", "text": json.dumps(
+            {"disputes": [row], "next_cursor": nxt})}]}
+
+    m = draft_manifest([_tool("list_disputes", {"cursor": {"type": "string"}})], call=call)
+    out = m["outcomes"]["list_disputes"]
+    assert out["paginate"] == {"cursor": "result.next_cursor", "arg": "cursor"}
+    # "won" lives on page two — mapping it proves the probe followed the cursor
+    assert out["error_statuses"] == ["lost"] and out["correct_statuses"] == ["won"]

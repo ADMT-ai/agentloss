@@ -340,10 +340,9 @@ class Gateway:
         census = False
         for tool, spec in specs.items():
             census = census or bool(spec.get("census", True))
-            data = _result_data(self.call_downstream(tool, spec.get("arguments")))
-            rows = _resolve(spec.get("items", "result"), {"result": data})
+            rows = self._fetch_rows(tool, spec)
             infer = spec.get("mode") == "infer"
-            for row in rows if isinstance(rows, list) else []:
+            for row in rows:
                 roots = {"item": row}
                 key = _resolve(spec.get("business_key"), roots)
                 if key is None:
@@ -388,6 +387,25 @@ class Gateway:
                                    realized=realized)
                     totals["census_correct"] += 1
         return totals
+
+    def _fetch_rows(self, tool, spec):
+        """All outcome rows for one spec, following `paginate` when declared:
+        {"cursor": "result.<next-cursor field>", "arg": "<request argument>"} — the tool
+        is re-called with the previous response's cursor until it comes back empty."""
+        pag = spec.get("paginate")
+        args = dict(spec.get("arguments") or {})
+        rows = []
+        for _ in range(1000 if pag else 1):     # hard cap: a cursor that never ends
+            data = _result_data(self.call_downstream(tool, args))
+            page = _resolve(spec.get("items", "result"), {"result": data})
+            rows.extend(page if isinstance(page, list) else [])
+            if not pag:
+                break
+            cursor = _resolve(pag.get("cursor"), {"result": data})
+            if not cursor:
+                break
+            args[pag.get("arg", "cursor")] = cursor
+        return rows
 
     def _sync_inferred(self, key, spec, roots, seen, totals):
         """One infer-mode row: read the evidence, infer the outcome, estimate the loss."""

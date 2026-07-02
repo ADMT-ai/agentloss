@@ -19,6 +19,10 @@ numbers compared against one oracle:
   status enum NOBODY has seen (MERCHANT_DEBIT, CONSUMER_CLAIM_DENIED, IN_ARBITRATION)
   plus a free-text summary and an amount. Onboarding must LEARN the mapping from the
   rows' own text; execution then runs in plain status mode — gold, realized dollars.
+- **level 4 — paginated outcome read**: level 0's rows, served two per page behind an
+  opaque cursor (`next_cursor` in the response, `cursor` argument in). Reading only
+  page one would silently under-count; onboarding must detect the cursor and the
+  gateway must follow it to the end.
 
 The oracle rule (same at every level, keyed on the customer suffix):
 `-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
@@ -34,7 +38,7 @@ PAYMENTS = []          # (id, amount, currency, customer) in creation order
 PARTIAL_FRACTION = 0.4
 
 
-def _base_tools(outcome_tool, outcome_desc):
+def _base_tools(outcome_tool, outcome_desc, outcome_props=None):
     return [
         {"name": "create_payment",
          "description": "Charge a customer. THE consequential action.",
@@ -46,19 +50,23 @@ def _base_tools(outcome_tool, outcome_desc):
          "inputSchema": {"type": "object", "properties": {
              "customer": {"type": "string"}}, "required": ["customer"]}},
         {"name": outcome_tool, "description": outcome_desc,
-         "inputSchema": {"type": "object", "properties": {}}},
+         "inputSchema": {"type": "object", "properties": outcome_props or {}}},
     ]
 
 
 LEVELS = {
-    0: ("list_disputes", "All disputes raised against payments."),
-    1: ("list_resolution_notes", "Resolution notes for contested payments."),
-    2: ("list_case_notes", "Case notes for payments under review."),
-    3: ("list_dispute_settlements", "Settlement records for disputed payments."),
+    0: ("list_disputes", "All disputes raised against payments.", None),
+    1: ("list_resolution_notes", "Resolution notes for contested payments.", None),
+    2: ("list_case_notes", "Case notes for payments under review.", None),
+    3: ("list_dispute_settlements", "Settlement records for disputed payments.", None),
+    4: ("list_disputes", "Disputes raised against payments, two per page.",
+        {"cursor": {"type": "string", "description": "Opaque page cursor."}}),
 }
+PAGE_SIZE = 2
 
 
 def _rows(level):
+    level = 0 if level == 4 else level      # level 4 = level 0 rows, served in pages
     rows = []
     for pid, amount, currency, customer in PAYMENTS:
         partial = round(amount * PARTIAL_FRACTION, 2)
@@ -136,7 +144,14 @@ def call_tool(level, name, args):
     if name == outcome_tool:
         key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
                "list_case_notes": "cases", "list_dispute_settlements": "settlements"}[outcome_tool]
-        payload = {key: _rows(level)}
+        rows = _rows(level)
+        if level == 4:      # served in pages; the cursor is an opaque offset
+            start = int(args.get("cursor") or 0)
+            more = start + PAGE_SIZE < len(rows)
+            payload = {key: rows[start:start + PAGE_SIZE],
+                       "next_cursor": str(start + PAGE_SIZE) if more else None}
+        else:
+            payload = {key: rows}
         result = {"content": [{"type": "text", "text": json.dumps(payload)}],
                   "isError": False}
         if level != 1:      # level 1 stays text-only, exercising the other parse path

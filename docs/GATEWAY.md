@@ -124,6 +124,11 @@ the two pack halves:
 Result paths prefer MCP `structuredContent`; if absent, the gateway JSON-parses the first
 `text` content block — the two shapes real MCP servers return.
 
+An outcome tool that pages its rows declares `"paginate": {"cursor":
+"result.next_cursor", "arg": "cursor"}` — sync re-calls the tool with the previous
+response's cursor until it comes back empty, so page one alone never under-counts. `init`
+detects the cursor from the probed response shape and drafts this itself.
+
 ### Soft outcomes — infer the outcome, estimate the loss
 
 Not every SoR writes `"status": "lost"`. Often the resolution lives in **free text** (a
@@ -254,11 +259,12 @@ MCP. Both write the same shapes; both are honest about the denominator.
   recovered error rate and dollar loss match the oracle exactly, that non-consequential tools
   record nothing, and that the store round-trips into `agentloss report --store`.
 - `examples/sor_ladder_eval.py` — the **synthetic SoR ladder**
-  (`examples/gateway/sor_ladder_server.py`): one mock SoR, four rungs of outcome mess —
+  (`examples/gateway/sor_ladder_server.py`): one mock SoR, five rungs of outcome mess —
   level 0 explicit status enum; level 1 free-text note, amount column (outcome inferred);
   level 2 note only (loss estimated too); level 3 unknown status vocabulary (the mapping is
-  learned from the rows' own text at onboarding, then execution runs gold status mode).
-  Per rung it runs the whole agentic loop with zero
+  learned from the rows' own text at onboarding, then execution runs gold status mode);
+  level 4 paginated outcome read (cursor detected at onboarding, followed to the end at
+  sync). Per rung it runs the whole agentic loop with zero
   hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
   report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
   loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
@@ -287,5 +293,6 @@ MCP. Both write the same shapes; both are honest about the denominator.
   vocabulary can't judge.
 - **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time:
   ~~unknown status vocabularies~~ (✅ 0.0.19: learned from the rows' own text at init),
-  paginated outcome reads, outcomes split across tools (join two reads), delayed/duplicated
-  resolutions, and a live-LLM reasoner rung measured against the same oracle.
+  ~~paginated outcome reads~~ (✅ 0.0.20: `paginate` — cursor detected at init, followed at
+  sync), outcomes split across tools (join two reads), delayed/duplicated resolutions, and a
+  live-LLM reasoner rung measured against the same oracle.
