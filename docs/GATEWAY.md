@@ -1,8 +1,9 @@
 # The agentloss gateway — measure any agent at the MCP boundary
 
-**Status: shipped — `agentloss gateway` (0.0.12) and the `gateway init` manifest scaffolder
-(0.0.13), each proven end-to-end by an oracle eval (`examples/gateway_eval.py`,
-`examples/gateway_init_eval.py`).**
+**Status: shipped — `agentloss gateway` (0.0.12), the `gateway init` manifest scaffolder
+(0.0.13), and soft outcomes / the synthetic SoR ladder (0.0.18), each proven end-to-end by
+an oracle eval (`examples/gateway_eval.py`, `examples/gateway_init_eval.py`,
+`examples/sor_ladder_eval.py`).**
 
 ## Why a gateway
 
@@ -123,6 +124,42 @@ the two pack halves:
 Result paths prefer MCP `structuredContent`; if absent, the gateway JSON-parses the first
 `text` content block — the two shapes real MCP servers return.
 
+### Soft outcomes — infer the outcome, estimate the loss
+
+Not every SoR writes `"status": "lost"`. Often the resolution lives in **free text** (a
+case note, a complaint thread) and the dollar figure may be missing entirely. Declare the
+outcome tool with `"mode": "infer"` and the gateway reads the rows instead of looking them
+up (`agentloss.inference` — deterministic marker vocabulary, overridable per manifest):
+
+```json
+"list_case_notes": {
+  "mode": "infer",
+  "items": "result.cases",
+  "business_key": "item.payment_id",
+  "evidence": ["item.note"],
+  "loss_fallback": "value_at_risk",
+  "source": "inferred",
+  "census": true
+}
+```
+
+- **Outcome**: error markers ("chargeback lost", "clawed back", "refunded", ...) vs
+  correct markers ("in merchant favor", "no merchant error", ...); neither matching means
+  non-final (skipped, out of the census). When both sides match, the marker appearing
+  last in the text wins — resolution language concludes the note. Override the vocabulary
+  with `error_markers` / `correct_markers`.
+- **Loss**, in order of fidelity: an explicit `loss` column if the rows have one; else
+  the first dollar amount written in the evidence ("refunded $200.00" — partial losses
+  read correctly); else the decision's own value-at-risk (`loss_fallback` — full
+  exposure, the conservative bound). `loss_fallback: value_at_risk` also works in status
+  mode, for enums whose rows carry no amount.
+- **Honesty**: inferred verdicts are **silver** — recorded with `fidelity: "silver"`, a
+  confidence below 1.0, and the dollars as *estimated* loss (they flow through
+  `expected_loss_usd`, never `realized_loss_usd`), so an inferred number is never passed
+  off as a looked-up one. Feed them through sampling + two-phase calibration
+  (`agentloss.calibrate`) to bias-correct against a small gold budget, exactly as with a
+  fallible verifier.
+
 ### Writing a manifest for a new server: `gateway init`
 
 This is the judgment a coding agent (or you) makes once per SoR, and it's the same two questions
@@ -135,13 +172,20 @@ agentloss gateway init --out my.manifest.json --url https://<hosted-server> \
 ```
 
 It calls the downstream `tools/list`, classifies money-movers (committing verb + money noun, or
-an amount-like schema property; read-prefixed tools never qualify) and reversal reads (read
-prefix + dispute/chargeback/credit-memo/... noun). Because reads are safe, it then **probes**
-each zero-argument reversal candidate and derives `items` / `item.*` paths and the status
-mapping from the server's real response shape. Anything unresolved is an explicit `_todo` a
-coding agent can finish in one pass; minor-unit amounts get `amount_divisor: 100` with a note.
-Proven by `examples/gateway_init_eval.py`: against the mock SoR, the drafted manifest recovers
-the oracle numbers with zero edits. Ready-made manifests live in `manifests/`.
+an amount-like schema property; read-prefixed tools never qualify) and outcome reads (read
+prefix + a reversal noun — dispute/chargeback/credit-memo/... — or a resolution noun —
+note/case/ticket/...). Because reads are safe, it then **probes** each zero-argument candidate
+and derives `items` / `item.*` paths and the status mapping from the server's real response
+shape. Rows with no status field but free-text fields are drafted as `"mode": "infer"` (soft
+outcomes), with `loss_fallback: value_at_risk` when no amount column exists either. The draft
+also carries a **`business_context`** block — the domain it understood the server to be
+(payments/billing/orders/...), the money-movers, and each outcome channel's mode — so the
+onboarding judgment is reviewable, not implicit; without `--use-case`, the use case is the
+understood domain. Anything unresolved is an explicit `_todo` a coding agent can finish in one
+pass; minor-unit amounts get `amount_divisor: 100` with a note. Proven by
+`examples/gateway_init_eval.py` and `examples/sor_ladder_eval.py`: against the mock SoRs, the
+drafted manifests recover the oracle numbers with zero edits. Ready-made manifests live in
+`manifests/`.
 
 The manual recipe, when you'd rather look yourself:
 
@@ -205,7 +249,17 @@ MCP. Both write the same shapes; both are honest about the denominator.
   `agentloss_sync_outcomes` + `agentloss_report` through the same connection; asserts the
   recovered error rate and dollar loss match the oracle exactly, that non-consequential tools
   record nothing, and that the store round-trips into `agentloss report --store`.
-- `tests/test_gateway.py` — the same flow under pytest, run in CI on every push.
+- `examples/sor_ladder_eval.py` — the **synthetic SoR ladder**
+  (`examples/gateway/sor_ladder_server.py`): one mock SoR, three rungs of outcome mess —
+  level 0 explicit status enum; level 1 free-text note, amount column (outcome inferred);
+  level 2 note only (loss estimated too). Per rung it runs the whole agentic loop with zero
+  hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
+  report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
+  loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
+  dogfood-eval-fix-iterate harness: run the loop, find where a rung breaks the recovery, fix,
+  then add a messier rung.
+- `tests/test_gateway.py`, `tests/test_inference.py` — the same flows under pytest, run in CI
+  on every push.
 
 ## Roadmap
 
@@ -219,5 +273,13 @@ MCP. Both write the same shapes; both are honest about the denominator.
 - **Manifests for real servers** — Stripe MCP draft shipped (`manifests/`); next: ERPNext/NetSuite
   MCP, GitHub (a merge is a commitment; a revert is a reversal). Each is a JSON file + an eval
   fixture, not a new pack.
-- **Soft outcomes** — a reversal tool whose rows need reasoning (`detectors.reasoning`) instead of
-  a status enum; feeds the existing sampling + calibration for an honest number.
+- ~~**Soft outcomes**~~ — ✅ shipped (0.0.18): `"mode": "infer"` — outcome inferred from
+  free-text evidence, loss estimated (parsed from the text, else value-at-risk), recorded
+  silver so it feeds the existing sampling + calibration for an honest number. Proven up the
+  synthetic SoR ladder (`examples/sor_ladder_eval.py`). Still open: an LLM reasoner rung
+  (`detectors.reasoning` behind the same manifest contract) for evidence that marker
+  vocabulary can't judge.
+- **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time: unknown status
+  vocabularies (statuses present but mapping unclear -> infer from them), paginated outcome
+  reads, outcomes split across tools (join two reads), delayed/duplicated resolutions, and a
+  live-LLM reasoner rung measured against the same oracle.

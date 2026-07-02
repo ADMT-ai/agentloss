@@ -107,7 +107,9 @@ _AGENTLOSS_TOOLS = [
      "inputSchema": _schema({}, [])},
     {"name": "agentloss_sync_outcomes",
      "description": "Fetch the system of record's reversals (via the manifest's outcome "
-                    "tool) and record them as gold ground-truth outcomes.",
+                    "tool) and record them as ground-truth outcomes — gold when the rows "
+                    "carry a status enum, silver (inferred outcome, estimated loss) when "
+                    "the manifest declares mode=infer.",
      "inputSchema": _schema({"tool": {"type": "string", "description":
                              "Which manifest outcome tool to sync (default: all)."}}, [])},
     {"name": "agentloss_record_outcome",
@@ -320,10 +322,18 @@ class Gateway:
         return msg.get("result")
 
     def sync_outcomes(self, only_tool=None):
-        """Call the manifest's reversal tool(s); map rows -> gold outcomes. Mirrors
-        packs.outcomes_from_reversals: census=True also marks the uncontested captured
-        decisions correct, so the denominator is right."""
-        totals = {"errors": 0, "correct": 0, "skipped_nonfinal": 0, "census_correct": 0}
+        """Call the manifest's reversal tool(s); map rows -> outcomes. Two modes per spec:
+
+        - `"mode": "status"` (default) — the row carries a status enum; matches are GOLD,
+          realized dollars. Mirrors packs.outcomes_from_reversals.
+        - `"mode": "infer"` — the row carries free-text evidence, no reliable enum; the
+          outcome is INFERRED and the loss ESTIMATED (agentloss.inference). Verdicts are
+          SILVER: the dollars flow through expected loss, never realized.
+
+        census=True also marks the uncontested captured decisions correct, so the
+        denominator is right."""
+        totals = {"errors": 0, "correct": 0, "skipped_nonfinal": 0, "census_correct": 0,
+                  "inferred": 0}
         specs = ({only_tool: self.m.outcomes[only_tool]} if only_tool
                  else dict(self.m.outcomes))
         seen = set()
@@ -332,21 +342,34 @@ class Gateway:
             census = census or bool(spec.get("census", True))
             data = _result_data(self.call_downstream(tool, spec.get("arguments")))
             rows = _resolve(spec.get("items", "result"), {"result": data})
+            infer = spec.get("mode") == "infer"
             for row in rows if isinstance(rows, list) else []:
                 roots = {"item": row}
                 key = _resolve(spec.get("business_key"), roots)
-                status = _resolve(spec.get("status"), roots)
-                if key is None or status is None:
+                if key is None:
                     continue
-                key, status = str(key), str(status)
+                key = str(key)
+                if infer:
+                    self._sync_inferred(key, spec, roots, seen, totals)
+                    continue
+                status = _resolve(spec.get("status"), roots)
+                if status is None:
+                    continue
+                status = str(status)
                 # any dispute row — final or not — takes the key out of the census
                 # ("no reversal" means correct; "unresolved reversal" means unknown)
                 seen.add(key)
                 if status in (spec.get("error_statuses") or []):
                     loss = _resolve(spec.get("loss"), roots)
-                    loss = (float(loss) if loss is not None else 0.0) \
-                        / float(spec.get("amount_divisor", 1))
-                    self._sync_one(key, "reject", spec, loss)
+                    if loss is None and spec.get("loss_fallback") == "value_at_risk":
+                        # the SoR names the error but not the dollar: estimate the loss
+                        # from the decision's own exposure (expected, not realized)
+                        self._sync_one(key, "reject", spec, self._value_at_risk(key),
+                                       realized=False)
+                    else:
+                        loss = (float(loss) if loss is not None else 0.0) \
+                            / float(spec.get("amount_divisor", 1))
+                        self._sync_one(key, "reject", spec, loss)
                     totals["errors"] += 1
                 elif status in (spec.get("correct_statuses") or []):
                     self._sync_one(key, self._action_of(key), spec, 0.0)
@@ -354,21 +377,65 @@ class Gateway:
                 else:
                     totals["skipped_nonfinal"] += 1
         if census:
-            source = next(iter(specs.values())).get("source", "dispute")
+            first = next(iter(specs.values()))
+            source = first.get("source", "dispute")
+            # census fills inherit the channel's fidelity: an absence observed through an
+            # inferred channel is silver, like the channel itself
+            realized = first.get("mode") != "infer"
             for key, d in list(STORE.decisions.items()):
                 if key not in seen and key not in STORE.outcomes:
-                    self._sync_one(key, d.action, {"source": source}, 0.0)
+                    self._sync_one(key, d.action, {"source": source}, 0.0,
+                                   realized=realized)
                     totals["census_correct"] += 1
         return totals
+
+    def _sync_inferred(self, key, spec, roots, seen, totals):
+        """One infer-mode row: read the evidence, infer the outcome, estimate the loss."""
+        from .inference import infer_outcome
+        paths = spec.get("evidence") or []
+        paths = [paths] if isinstance(paths, str) else paths
+        evidence = " | ".join(str(v) for p in paths
+                              if (v := _resolve(p, roots)) is not None)
+        loss = _resolve(spec.get("loss"), roots)
+        var = self._value_at_risk(key) \
+            if spec.get("loss_fallback", "value_at_risk") == "value_at_risk" else None
+        v = infer_outcome(evidence,
+                          loss=None if loss is None else
+                          float(loss) / float(spec.get("amount_divisor", 1)),
+                          value_at_risk=var,
+                          error_markers=spec.get("error_markers"),
+                          correct_markers=spec.get("correct_markers"))
+        seen.add(key)          # even a non-final case note takes the key out of the census
+        if v["ground_truth"] is None:
+            totals["skipped_nonfinal"] += 1
+            return
+        totals["inferred"] += 1
+        if v["ground_truth"] == "reject":
+            self._sync_one(key, "reject", spec, v["estimated_loss_usd"],
+                           realized=False, confidence=v["confidence"])
+            totals["errors"] += 1
+        else:
+            self._sync_one(key, self._action_of(key), spec, 0.0,
+                           realized=False, confidence=v["confidence"])
+            totals["correct"] += 1
+
+    def _value_at_risk(self, key):
+        d = STORE.decisions.get(key)
+        return d.value_at_risk_usd if d else 0.0
 
     def _action_of(self, key):
         d = STORE.decisions.get(key)
         return d.action if d else "approve"
 
-    def _sync_one(self, key, ground_truth, spec, loss):
+    def _sync_one(self, key, ground_truth, spec, loss, realized=True, confidence=1.0):
+        """realized=True: gold ground truth, realized dollars. realized=False: an inferred
+        or estimated outcome — silver, the dollars count as expected loss only."""
         report_outcome(key, ground_truth=ground_truth,
-                       source=spec.get("source", "dispute"), fidelity="gold",
-                       realized_loss_usd=loss, estimated_loss_usd=loss)
+                       source=spec.get("source", "dispute"),
+                       fidelity="gold" if realized else "silver",
+                       confidence=confidence,
+                       realized_loss_usd=loss if realized else None,
+                       estimated_loss_usd=loss)
         if self.store_path:
             append_outcome(key, STORE.outcomes[key], self.store_path)
 

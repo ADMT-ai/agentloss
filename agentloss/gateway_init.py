@@ -10,14 +10,21 @@ explicit `_todo` markers a human or coding agent can finish in one pass.
 - **Money-movers**: non-read tools whose name pairs a committing verb (create/send/pay/...)
   with a money noun (payment/refund/order/...), or whose input schema carries an amount-like
   numeric property. Read-prefixed tools (list_/get_/search_/...) are never money-movers.
-- **Reversal reads**: read-prefixed tools naming a reversal noun (dispute/chargeback/
-  credit_memo/...). With probing on (default), init CALLS each reversal candidate that
-  requires no arguments — reads are safe — and derives the row paths (`items`,
-  `item.<key>`, `item.status`, `item.<amount>`) from the real response shape, mapping any
-  observed statuses through a default vocabulary (lost/chargedback -> error, won -> correct).
+- **Outcome reads**: read-prefixed tools naming a reversal noun (dispute/chargeback/
+  credit_memo/...) or a resolution noun (note/case/complaint/...). With probing on
+  (default), init CALLS each candidate that requires no arguments — reads are safe — and
+  derives the row paths (`items`, `item.<key>`, `item.status`, `item.<amount>`) from the
+  real response shape, mapping any observed statuses through a default vocabulary
+  (lost/chargedback -> error, won -> correct). Rows with NO status field but free-text
+  fields are drafted as `"mode": "infer"` (soft outcomes — agentloss.inference): the
+  outcome will be inferred from the text and, when no amount column exists either, the
+  loss estimated (`loss_fallback: value_at_risk`).
 
-Everything init could not establish is a `_todo` in the emitted JSON; unknown keys are
-ignored by the gateway, so the notes ride along harmlessly.
+It also emits a `business_context` block — the domain it understood the server to be
+(payments/billing/orders/...), the money-movers, and each outcome channel's mode — so the
+judgment is reviewable, not implicit. Everything init could not establish is a `_todo` in
+the emitted JSON; unknown keys are ignored by the gateway, so the notes ride along
+harmlessly.
 """
 import json
 import re
@@ -34,6 +41,14 @@ _MONEY_NOUNS = ("payment", "charge", "invoice", "order", "refund", "payout", "tr
                 "subscription", "purchase", "billing", "credit", "debit", "price", "quote")
 _REVERSAL_NOUNS = ("dispute", "chargeback", "credit_memo", "credit_note", "debit_note",
                    "reversal", "complaint", "return")
+# reads whose rows tend to carry the outcome as FREE TEXT instead of a status enum
+_RESOLUTION_NOUNS = ("resolution", "note", "case", "ticket", "incident", "adjustment",
+                     "review")
+# domain guesses for the business_context block, by noun evidence in the tools/list
+_DOMAINS = (("payments", ("payment", "charge", "payout", "transfer")),
+            ("billing", ("invoice", "billing", "subscription", "credit", "debit")),
+            ("orders", ("order", "purchase", "quote")),
+            ("support", ("ticket", "case", "complaint")))
 _AMOUNT_PROPS = ("amount", "amount_usd", "total", "total_amount", "value", "price",
                  "unit_amount", "amount_minor")
 # default status vocabulary for probed reversal rows
@@ -71,6 +86,29 @@ def _is_money_mover(tool):
 def _is_reversal_read(tool):
     name = tool.get("name", "")
     return _is_read(name) and any(n in name.lower() for n in _REVERSAL_NOUNS)
+
+
+def _is_outcome_read(tool):
+    name = tool.get("name", "")
+    return _is_read(name) and any(n in name.lower()
+                                  for n in _REVERSAL_NOUNS + _RESOLUTION_NOUNS)
+
+
+def _evidence_fields(rows):
+    """Row fields that read like free text (a string with a space in it) — the evidence
+    an inferred outcome is judged from."""
+    fields = set()
+    for row in rows:
+        fields |= {f for f, v in row.items() if isinstance(v, str) and " " in v.strip()}
+    return sorted(fields)
+
+
+def _guess_domain(tools):
+    text = " ".join("_".join(_words(t.get("name", ""))) for t in tools)
+    for domain, nouns in _DOMAINS:
+        if any(n in text for n in nouns):
+            return domain
+    return "transactions"
 
 
 def _minor_units(prop_name, prop_schema):
@@ -232,7 +270,7 @@ def draft_manifest(tools, use_case="gateway", call=None):
             if "currency" in props:
                 spec["currency"] = "arguments.currency"
             manifest["tools"][name] = spec
-        elif _is_reversal_read(tool):
+        elif _is_outcome_read(tool):
             spec = {"source": "chargeback" if "dispute" in name or "chargeback" in name
                     else "refund", "census": True}
             required = ((tool.get("inputSchema") or {}).get("required")) or []
@@ -242,12 +280,29 @@ def draft_manifest(tools, use_case="gateway", call=None):
                     items_path, rows = _result_rows(call(name))
                     if items_path is not None and rows:
                         key, key_todo, status, loss, observed = _row_paths(rows)
+                        evidence = _evidence_fields(rows)
                         spec["items"] = items_path
                         spec["business_key"] = (f"item.{key}" if key else
                                                 "_todo: item.<field naming the original "
                                                 "decision>")
                         if key_todo:
                             spec["_todo_business_key"] = key_todo
+                        if status is None and evidence:
+                            # no enum to look up — soft outcomes: infer from the text
+                            spec["mode"] = "infer"
+                            spec["source"] = "inferred"
+                            spec["evidence"] = [f"item.{f}" for f in evidence]
+                            if loss:
+                                spec["loss"] = f"item.{loss}"
+                            else:
+                                spec["loss_fallback"] = "value_at_risk"
+                                notes.append(f"{name} rows carry no amount field — an "
+                                             "error's loss will be parsed from the "
+                                             "evidence text, else estimated at the "
+                                             "decision's value-at-risk.")
+                            probed = True
+                            manifest["outcomes"][name] = spec
+                            continue
                         spec["status"] = f"item.{status}" if status else \
                             "_todo: item.<the row's resolution field>"
                         spec["loss"] = f"item.{loss}" if loss else \
@@ -276,6 +331,18 @@ def draft_manifest(tools, use_case="gateway", call=None):
                     "correct_statuses": ["_todo"],
                 })
             manifest["outcomes"][name] = spec
+    domain = _guess_domain(tools)
+    if use_case == "gateway":               # no slug given: use the understood domain
+        manifest["use_case"] = domain
+    manifest["business_context"] = {
+        "domain": domain,
+        "money_movers": sorted(manifest["tools"]),
+        "outcome_channels": [{"tool": t, "mode": s.get("mode", "status")}
+                             for t, s in manifest["outcomes"].items()],
+        "outcome_basis": ("inferred from free text" if any(
+            s.get("mode") == "infer" for s in manifest["outcomes"].values())
+            else "explicit statuses"),
+    }
     manifest["_init"] = {
         "generated_by": "agentloss gateway init",
         "notes": notes,

@@ -1,0 +1,177 @@
+"""The synthetic SoR ladder — one mock system-of-record MCP server, three rungs of mess.
+
+Every system of record is different; what varies most is HOW the outcome is written down.
+This server plays the same payments business at three levels of outcome fidelity, so the
+whole loop (onboard -> execute -> deliver) can be dogfooded per rung and the recovered
+numbers compared against one oracle:
+
+    python examples/gateway/sor_ladder_server.py --level 0 [--seed]
+
+- **level 0 — explicit**: `list_disputes` rows carry a status enum + a dollar amount.
+  The basic case: outcomes are looked up (gold, realized dollars).
+- **level 1 — inferred outcome, explicit loss**: `list_resolution_notes` rows carry a
+  FREE-TEXT note (no status field) + an amount column. The outcome must be inferred;
+  the dollar is still a lookup.
+- **level 2 — inferred outcome, estimated loss**: `list_case_notes` rows carry only a
+  note. The loss must be estimated too — parsed from the text when written there
+  ("refunded $200.00"), else bounded by the decision's value-at-risk.
+
+The oracle rule (same at every level, keyed on the customer suffix):
+`-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
+`-won` -> disputed but correct; `-contested` -> disputed, error language in the note,
+but resolved correct (exercises last-marker-wins); `-pending` -> non-final; anything
+else -> undisputed correct. `--seed` pre-populates history so `gateway init` probing
+sees real rows. Pure stdio JSON-RPC, no deps.
+"""
+import json
+import sys
+
+PAYMENTS = []          # (id, amount, currency, customer) in creation order
+PARTIAL_FRACTION = 0.4
+
+
+def _base_tools(outcome_tool, outcome_desc):
+    return [
+        {"name": "create_payment",
+         "description": "Charge a customer. THE consequential action.",
+         "inputSchema": {"type": "object", "properties": {
+             "amount": {"type": "number"}, "currency": {"type": "string"},
+             "customer": {"type": "string"}}, "required": ["amount", "customer"]}},
+        {"name": "lookup_customer",
+         "description": "Read-only customer profile lookup.",
+         "inputSchema": {"type": "object", "properties": {
+             "customer": {"type": "string"}}, "required": ["customer"]}},
+        {"name": outcome_tool, "description": outcome_desc,
+         "inputSchema": {"type": "object", "properties": {}}},
+    ]
+
+
+LEVELS = {
+    0: ("list_disputes", "All disputes raised against payments."),
+    1: ("list_resolution_notes", "Resolution notes for contested payments."),
+    2: ("list_case_notes", "Case notes for payments under review."),
+}
+
+
+def _rows(level):
+    rows = []
+    for pid, amount, currency, customer in PAYMENTS:
+        partial = round(amount * PARTIAL_FRACTION, 2)
+        if customer.endswith("-fraud"):
+            row = {0: {"payment_id": pid, "status": "lost", "amount": amount},
+                   1: {"payment_id": pid, "amount": amount,
+                       "note": "chargeback lost — funds clawed back from merchant"},
+                   2: {"payment_id": pid,
+                       "note": "fraudulent charge confirmed; customer made whole, "
+                               "full amount refunded"}}[level]
+        elif customer.endswith("-partial"):
+            row = {0: {"payment_id": pid, "status": "lost", "amount": partial},
+                   1: {"payment_id": pid, "amount": partial,
+                       "note": "complaint upheld in part — partial refund issued"},
+                   2: {"payment_id": pid,
+                       "note": f"complaint upheld in part — refunded ${partial:.2f} "
+                               "to customer"}}[level]
+        elif customer.endswith("-won"):
+            row = {0: {"payment_id": pid, "status": "won", "amount": amount},
+                   1: {"payment_id": pid, "amount": amount,
+                       "note": "dispute resolved in merchant favor — charge stands"},
+                   2: {"payment_id": pid,
+                       "note": "reviewed: no merchant error, case closed in "
+                               "merchant favor"}}[level]
+        elif customer.endswith("-contested"):
+            row = {0: {"payment_id": pid, "status": "won", "amount": amount},
+                   1: {"payment_id": pid, "amount": amount,
+                       "note": "customer says they were wrongly charged; after "
+                               "review, complaint dismissed"},
+                   2: {"payment_id": pid,
+                       "note": "customer claimed they were wrongly charged; "
+                               "investigation found no merchant error"}}[level]
+        elif customer.endswith("-pending"):
+            row = {0: {"payment_id": pid, "status": "under_review", "amount": amount},
+                   1: {"payment_id": pid, "amount": amount,
+                       "note": "case open, awaiting customer evidence"},
+                   2: {"payment_id": pid,
+                       "note": "case open, awaiting customer evidence"}}[level]
+        else:
+            continue
+        rows.append(row)
+    return rows
+
+
+def call_tool(level, name, args):
+    outcome_tool = LEVELS[level][0]
+    if name == "create_payment":
+        pid = f"pay_{len(PAYMENTS) + 1}"
+        PAYMENTS.append((pid, float(args["amount"]), args.get("currency", "USD"),
+                         str(args["customer"])))
+        payload = {"id": pid, "status": "succeeded"}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "structuredContent": payload, "isError": False}
+    if name == "lookup_customer":
+        payload = {"customer": args["customer"], "standing": "good"}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "structuredContent": payload, "isError": False}
+    if name == outcome_tool:
+        key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
+               "list_case_notes": "cases"}[outcome_tool]
+        payload = {key: _rows(level)}
+        result = {"content": [{"type": "text", "text": json.dumps(payload)}],
+                  "isError": False}
+        if level != 1:      # level 1 stays text-only, exercising the other parse path
+            result["structuredContent"] = payload
+        return result
+    return {"content": [{"type": "text", "text": f"unknown tool {name}"}], "isError": True}
+
+
+def handle(level, msg):
+    method, mid = msg.get("method"), msg.get("id")
+    if method == "initialize":
+        return {"jsonrpc": "2.0", "id": mid, "result": {
+            "protocolVersion": msg.get("params", {}).get("protocolVersion", "2025-03-26"),
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": f"sor-ladder-l{level}", "version": "0"}}}
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": mid,
+                "result": {"tools": _base_tools(*LEVELS[level])}}
+    if method == "tools/call":
+        params = msg.get("params") or {}
+        return {"jsonrpc": "2.0", "id": mid,
+                "result": call_tool(level, params.get("name"),
+                                    params.get("arguments") or {})}
+    if mid is not None:  # unknown request -> error; notifications are ignored
+        return {"jsonrpc": "2.0", "id": mid,
+                "error": {"code": -32601, "message": f"unknown method {method}"}}
+    return None
+
+
+def seed():
+    """Pre-existing SoR history covering every row shape, so `gateway init` probing
+    derives the paths (and the need to infer) from real data."""
+    for cust, amount in [("legacy-a", 80.0), ("legacy-fraud", 250.0),
+                         ("legacy-partial", 120.0), ("legacy-won", 40.0),
+                         ("legacy-contested", 30.0), ("legacy-pending", 66.0)]:
+        PAYMENTS.append((f"pay_seed_{len(PAYMENTS) + 1}", amount, "USD", cust))
+
+
+def main():
+    args = sys.argv[1:]
+    level = int(args[args.index("--level") + 1]) if "--level" in args else 0
+    if level not in LEVELS:
+        print(f"unknown level {level}; choose one of {sorted(LEVELS)}", file=sys.stderr)
+        return 2
+    if "--seed" in args:
+        seed()
+    for line in sys.stdin.buffer:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        resp = handle(level, msg)
+        if resp is not None:
+            sys.stdout.buffer.write((json.dumps(resp) + "\n").encode())
+            sys.stdout.buffer.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
