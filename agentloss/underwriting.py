@@ -150,7 +150,7 @@ def underwriting_report(cfg=None, agent=None, baseline=None):
 
     acc = accumulation(STORE)
     stab = stability(STORE)
-    qual = qualification_checks() + run_checks()
+    qual = qualification_checks() + run_checks(approve_actions=_GRANTING)
     if stab["drifting"]:
         qual.insert(0, _f(
             "warn", "loss_rate_drift",
