@@ -73,3 +73,53 @@ def test_shipped_manifests_load_and_are_well_formed():
                 assert isinstance(spec.get(field), str), (path, name, field)
             assert spec.get("error_statuses"), (path, name)
             assert "_todo" not in json.dumps(spec), (path, name)
+
+
+def test_infer_mode_drafted_for_text_only_rows():
+    def call(name, arguments=None):
+        rows = [{"payment_id": "p1", "note": "chargeback lost — funds clawed back"},
+                {"payment_id": "p2", "note": "dispute resolved in merchant favor"}]
+        return {"content": [{"type": "text", "text": json.dumps({"cases": rows})}]}
+
+    m = draft_manifest([_tool("list_case_notes")], call=call)
+    out = m["outcomes"]["list_case_notes"]
+    assert out["mode"] == "infer" and out["source"] == "inferred"
+    assert out["evidence"] == ["item.note"]
+    assert out["loss_fallback"] == "value_at_risk" and "loss" not in out
+    assert m["business_context"]["outcome_basis"] == "inferred from free text"
+
+
+def test_unknown_vocabulary_learned_from_row_text():
+    def call(name, arguments=None):
+        rows = [{"payment_id": "p1", "status": "MERCHANT_DEBIT", "amount": 10.0,
+                 "summary": "chargeback lost — funds clawed back"},
+                {"payment_id": "p2", "status": "CONSUMER_CLAIM_DENIED", "amount": 5.0,
+                 "summary": "dispute resolved in merchant favor"},
+                {"payment_id": "p3", "status": "IN_ARBITRATION", "amount": 7.0,
+                 "summary": "case open, awaiting evidence"}]
+        return {"content": [{"type": "text", "text": json.dumps({"disputes": rows})}]}
+
+    m = draft_manifest([_tool("list_disputes")], call=call)
+    out = m["outcomes"]["list_disputes"]
+    assert out.get("mode", "status") == "status"            # execution stays gold
+    assert out["error_statuses"] == ["MERCHANT_DEBIT"]
+    assert out["correct_statuses"] == ["CONSUMER_CLAIM_DENIED"]
+    assert "_learned_statuses" in out                        # declared, not silent
+
+
+def test_ambiguous_learned_status_lands_in_neither():
+    # the same status carries error text on one row, correct text on another —
+    # trusting either side would be a lie, so it must stay non-final
+    def call(name, arguments=None):
+        rows = [{"payment_id": "p1", "status": "CLOSED",
+                 "summary": "chargeback lost — funds clawed back"},
+                {"payment_id": "p2", "status": "CLOSED",
+                 "summary": "dispute resolved in merchant favor"},
+                {"payment_id": "p3", "status": "SETTLED_MERCHANT_FAULT",
+                 "summary": "complaint upheld, refund issued"}]
+        return {"content": [{"type": "text", "text": json.dumps({"disputes": rows})}]}
+
+    m = draft_manifest([_tool("list_disputes")], call=call)
+    out = m["outcomes"]["list_disputes"]
+    assert out["error_statuses"] == ["SETTLED_MERCHANT_FAULT"]
+    assert "CLOSED" not in out["error_statuses"] + out["correct_statuses"]

@@ -15,6 +15,10 @@ numbers compared against one oracle:
 - **level 2 — inferred outcome, estimated loss**: `list_case_notes` rows carry only a
   note. The loss must be estimated too — parsed from the text when written there
   ("refunded $200.00"), else bounded by the decision's value-at-risk.
+- **level 3 — unknown status vocabulary**: `list_dispute_settlements` rows carry a
+  status enum NOBODY has seen (MERCHANT_DEBIT, CONSUMER_CLAIM_DENIED, IN_ARBITRATION)
+  plus a free-text summary and an amount. Onboarding must LEARN the mapping from the
+  rows' own text; execution then runs in plain status mode — gold, realized dollars.
 
 The oracle rule (same at every level, keyed on the customer suffix):
 `-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
@@ -50,6 +54,7 @@ LEVELS = {
     0: ("list_disputes", "All disputes raised against payments."),
     1: ("list_resolution_notes", "Resolution notes for contested payments."),
     2: ("list_case_notes", "Case notes for payments under review."),
+    3: ("list_dispute_settlements", "Settlement records for disputed payments."),
 }
 
 
@@ -63,21 +68,32 @@ def _rows(level):
                        "note": "chargeback lost — funds clawed back from merchant"},
                    2: {"payment_id": pid,
                        "note": "fraudulent charge confirmed; customer made whole, "
-                               "full amount refunded"}}[level]
+                               "full amount refunded"},
+                   3: {"payment_id": pid, "status": "MERCHANT_DEBIT", "amount": amount,
+                       "summary": "chargeback lost — funds clawed back from "
+                                  "merchant"}}[level]
         elif customer.endswith("-partial"):
             row = {0: {"payment_id": pid, "status": "lost", "amount": partial},
                    1: {"payment_id": pid, "amount": partial,
                        "note": "complaint upheld in part — partial refund issued"},
                    2: {"payment_id": pid,
                        "note": f"complaint upheld in part — refunded ${partial:.2f} "
-                               "to customer"}}[level]
+                               "to customer"},
+                   3: {"payment_id": pid, "status": "MERCHANT_DEBIT_PARTIAL",
+                       "amount": partial,
+                       "summary": "complaint upheld in part — partial refund "
+                                  "issued"}}[level]
         elif customer.endswith("-won"):
             row = {0: {"payment_id": pid, "status": "won", "amount": amount},
                    1: {"payment_id": pid, "amount": amount,
                        "note": "dispute resolved in merchant favor — charge stands"},
                    2: {"payment_id": pid,
                        "note": "reviewed: no merchant error, case closed in "
-                               "merchant favor"}}[level]
+                               "merchant favor"},
+                   3: {"payment_id": pid, "status": "CONSUMER_CLAIM_DENIED",
+                       "amount": amount,
+                       "summary": "dispute resolved in merchant favor — charge "
+                                  "stands"}}[level]
         elif customer.endswith("-contested"):
             row = {0: {"payment_id": pid, "status": "won", "amount": amount},
                    1: {"payment_id": pid, "amount": amount,
@@ -85,13 +101,19 @@ def _rows(level):
                                "review, complaint dismissed"},
                    2: {"payment_id": pid,
                        "note": "customer claimed they were wrongly charged; "
-                               "investigation found no merchant error"}}[level]
+                               "investigation found no merchant error"},
+                   3: {"payment_id": pid, "status": "CONSUMER_CLAIM_DENIED",
+                       "amount": amount,
+                       "summary": "customer says they were wrongly charged; after "
+                                  "review, complaint dismissed"}}[level]
         elif customer.endswith("-pending"):
             row = {0: {"payment_id": pid, "status": "under_review", "amount": amount},
                    1: {"payment_id": pid, "amount": amount,
                        "note": "case open, awaiting customer evidence"},
                    2: {"payment_id": pid,
-                       "note": "case open, awaiting customer evidence"}}[level]
+                       "note": "case open, awaiting customer evidence"},
+                   3: {"payment_id": pid, "status": "IN_ARBITRATION", "amount": amount,
+                       "summary": "case open, awaiting customer evidence"}}[level]
         else:
             continue
         rows.append(row)
@@ -113,7 +135,7 @@ def call_tool(level, name, args):
                 "structuredContent": payload, "isError": False}
     if name == outcome_tool:
         key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
-               "list_case_notes": "cases"}[outcome_tool]
+               "list_case_notes": "cases", "list_dispute_settlements": "settlements"}[outcome_tool]
         payload = {key: _rows(level)}
         result = {"content": [{"type": "text", "text": json.dumps(payload)}],
                   "isError": False}

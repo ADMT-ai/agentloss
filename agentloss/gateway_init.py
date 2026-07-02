@@ -111,6 +111,30 @@ def _guess_domain(tools):
     return "transactions"
 
 
+def _learn_status_vocab(rows, status_field, evidence_fields):
+    """A status enum the default vocabulary doesn't know (MERCHANT_DEBIT, ...): LEARN the
+    mapping by inferring each probed row's verdict from its free-text fields, then
+    grouping the statuses by verdict. A status seen on both sides is ambiguous and lands
+    in neither (its rows stay non-final). Returns (error_statuses, correct_statuses,
+    rows_used) or None when the text decided nothing."""
+    from .inference import infer_outcome
+    err, ok = set(), set()
+    used = 0
+    for row in rows:
+        status = row.get(status_field)
+        if status is None:
+            continue
+        evidence = " | ".join(str(row[f]) for f in evidence_fields if row.get(f) is not None)
+        verdict = infer_outcome(evidence)["ground_truth"]
+        if verdict is None:
+            continue
+        used += 1
+        (err if verdict == "reject" else ok).add(str(status))
+    if not err and not ok:
+        return None
+    return sorted(err - ok), sorted(ok - err), used
+
+
 def _minor_units(prop_name, prop_schema):
     desc = (prop_schema or {}).get("description", "").lower()
     return (prop_name in ("unit_amount", "amount_minor")
@@ -307,11 +331,26 @@ def draft_manifest(tools, use_case="gateway", call=None):
                             "_todo: item.<the row's resolution field>"
                         spec["loss"] = f"item.{loss}" if loss else \
                             "_todo: item.<the row's dollar amount>"
-                        spec["error_statuses"] = [s for s in observed
-                                                  if s.lower() in _ERROR_STATUSES] or \
+                        known_err = [s for s in observed if s.lower() in _ERROR_STATUSES]
+                        known_ok = [s for s in observed if s.lower() in _CORRECT_STATUSES]
+                        if status and observed and not known_err and not known_ok:
+                            # an unknown vocabulary — learn it from the rows' own text
+                            fields = [f for f in _evidence_fields(rows) if f != status]
+                            learned = _learn_status_vocab(rows, status, fields) \
+                                if fields else None
+                            if learned:
+                                known_err, known_ok, used = learned
+                                spec["_learned_statuses"] = (
+                                    f"vocabulary learned by inferring {used} probed "
+                                    "row(s) from their free text "
+                                    "(agentloss.inference) — review before trusting "
+                                    "realized dollars")
+                                notes.append(f"{name}: observed statuses matched no "
+                                             "known vocabulary; mapping learned from "
+                                             "the rows' free-text fields.")
+                        spec["error_statuses"] = known_err or \
                             ["_todo: which observed statuses mean the decision was wrong"]
-                        spec["correct_statuses"] = [s for s in observed
-                                                    if s.lower() in _CORRECT_STATUSES]
+                        spec["correct_statuses"] = known_ok
                         spec["_observed_statuses"] = observed
                         probed = True
                     elif items_path is not None:
@@ -337,8 +376,10 @@ def draft_manifest(tools, use_case="gateway", call=None):
     manifest["business_context"] = {
         "domain": domain,
         "money_movers": sorted(manifest["tools"]),
-        "outcome_channels": [{"tool": t, "mode": s.get("mode", "status")}
-                             for t, s in manifest["outcomes"].items()],
+        "outcome_channels": [
+            {"tool": t, "mode": s.get("mode", "status"),
+             **({"vocabulary": "learned"} if "_learned_statuses" in s else {})}
+            for t, s in manifest["outcomes"].items()],
         "outcome_basis": ("inferred from free text" if any(
             s.get("mode") == "infer" for s in manifest["outcomes"].values())
             else "explicit statuses"),

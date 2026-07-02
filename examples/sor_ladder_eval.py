@@ -7,6 +7,9 @@ Every system of record writes its outcomes differently; the ladder proves the sa
     level 1 — free-text note, amount column   -> INFERRED outcomes, explicit loss (silver)
     level 2 — free-text note only             -> inferred outcomes, ESTIMATED loss
                                                  (parsed from the text, else value-at-risk)
+    level 3 — unknown status vocabulary       -> onboarding LEARNS the mapping from the
+                                                 rows' own text; execution runs status
+                                                 mode — gold, realized dollars again
 
 Per level, with zero hand-written config:
 1. **Onboard**: `agentloss gateway init` against the seeded server; assert it understood
@@ -46,7 +49,9 @@ ORACLE_NONFINAL = 1
 ORACLE_CENSUS = ORACLE_DECISIONS - ORACLE_ERRORS - ORACLE_CORRECT - ORACLE_NONFINAL
 ORACLE_RATE = ORACLE_ERRORS / (ORACLE_DECISIONS - ORACLE_NONFINAL)
 
-OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_notes"}
+OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_notes",
+                 3: "list_dispute_settlements"}
+GOLD_LEVELS = (0, 3)        # rungs whose execution yields gold, realized dollars
 
 _checks = []
 
@@ -78,7 +83,7 @@ def onboard(level, tmp):
     tool = OUTCOME_TOOLS[level]
     out = m["outcomes"].get(tool, {})
     check(f"L{level} onboard: outcome channel found", bool(out), json.dumps(m["outcomes"]))
-    mode = "status" if level == 0 else "infer"
+    mode = "status" if level in GOLD_LEVELS else "infer"
     check(f"L{level} onboard: channel mode = {mode}", out.get("mode", "status") == mode,
           json.dumps(out))
     check(f"L{level} onboard: join key probed", out.get("business_key") == "item.payment_id",
@@ -87,7 +92,7 @@ def onboard(level, tmp):
         check("L0 onboard: statuses mapped",
               out.get("error_statuses") == ["lost"] and out.get("correct_statuses") == ["won"],
               json.dumps(out))
-    else:
+    elif level in (1, 2):
         check(f"L{level} onboard: evidence = the note", out.get("evidence") == ["item.note"],
               json.dumps(out))
     if level == 1:
@@ -97,6 +102,17 @@ def onboard(level, tmp):
         check("L2 onboard: loss falls back to value-at-risk",
               out.get("loss_fallback") == "value_at_risk" and "loss" not in out,
               json.dumps(out))
+    if level == 3:
+        check("L3 onboard: unknown vocabulary LEARNED from the rows' text",
+              out.get("error_statuses") == ["MERCHANT_DEBIT", "MERCHANT_DEBIT_PARTIAL"]
+              and out.get("correct_statuses") == ["CONSUMER_CLAIM_DENIED"],
+              json.dumps(out))
+        check("L3 onboard: learning is declared, not silent",
+              "_learned_statuses" in out, json.dumps(out))
+        channel = next((c for c in ctx.get("outcome_channels", [])
+                        if c.get("tool") == tool), {})
+        check("L3 onboard: business_context marks the vocabulary learned",
+              channel.get("vocabulary") == "learned", json.dumps(ctx))
     return manifest_path
 
 
@@ -123,7 +139,8 @@ def execute_and_deliver(level, manifest_path, tmp):
     check(f"L{level} deliver: census fills denominator",
           synced["census_correct"] == ORACLE_CENSUS, str(synced))
     check(f"L{level} deliver: inferred count",
-          synced["inferred"] == (0 if level == 0 else ORACLE_ERRORS + ORACLE_CORRECT),
+          synced["inferred"] == (0 if level in GOLD_LEVELS
+                                 else ORACLE_ERRORS + ORACLE_CORRECT),
           str(synced))
 
     r, _ = client.call_tool("agentloss_report")
@@ -131,8 +148,8 @@ def execute_and_deliver(level, manifest_path, tmp):
           r["decisions"] == ORACLE_DECISIONS, str(r["decisions"]))
     check(f"L{level} deliver: oracle error rate", abs(r["error_rate"] - ORACLE_RATE) < 1e-9,
           f"{r['error_rate']} vs {ORACLE_RATE}")
-    if level == 0:
-        check("L0 deliver: oracle realized loss (gold)",
+    if level in GOLD_LEVELS:
+        check(f"L{level} deliver: oracle realized loss (gold)",
               abs(r["realized_loss_usd"] - ORACLE_LOSS) < 1e-6, str(r["realized_loss_usd"]))
     else:
         check(f"L{level} deliver: inferred dollars are EXPECTED loss",
@@ -173,18 +190,20 @@ def check_silver_semantics(store):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="agentloss_ladder_")
-    for level in (0, 1, 2):
+    silver_store = None
+    for level in sorted(OUTCOME_TOOLS):
         manifest_path = onboard(level, tmp)
         store = execute_and_deliver(level, manifest_path, tmp)
         if level == 2:
+            silver_store = store
             check_silver_semantics(store)
 
-    # out-of-process readout of the hardest rung: replay the persisted store here
+    # out-of-process readout of the estimated-loss rung: replay the persisted store here
     import agentloss
     from agentloss.core import STORE
     STORE.decisions.clear()
     STORE.outcomes.clear()
-    loaded = agentloss.load_store(store)
+    loaded = agentloss.load_store(silver_store)
     check("store: decisions persisted", loaded["decisions"] == ORACLE_DECISIONS, str(loaded))
     r2 = agentloss.report()
     check("store: replay matches oracle expected loss",

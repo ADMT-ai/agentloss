@@ -177,7 +177,11 @@ prefix + a reversal noun — dispute/chargeback/credit-memo/... — or a resolut
 note/case/ticket/...). Because reads are safe, it then **probes** each zero-argument candidate
 and derives `items` / `item.*` paths and the status mapping from the server's real response
 shape. Rows with no status field but free-text fields are drafted as `"mode": "infer"` (soft
-outcomes), with `loss_fallback: value_at_risk` when no amount column exists either. The draft
+outcomes), with `loss_fallback: value_at_risk` when no amount column exists either. A status
+enum the default vocabulary doesn't know (MERCHANT_DEBIT, ...) gets **learned**: init infers
+each probed row's verdict from its free-text fields and groups the statuses by verdict —
+declared via `_learned_statuses` (an ambiguous status lands in neither set), so execution
+still runs in gold status mode. The draft
 also carries a **`business_context`** block — the domain it understood the server to be
 (payments/billing/orders/...), the money-movers, and each outcome channel's mode — so the
 onboarding judgment is reviewable, not implicit; without `--use-case`, the use case is the
@@ -250,9 +254,11 @@ MCP. Both write the same shapes; both are honest about the denominator.
   recovered error rate and dollar loss match the oracle exactly, that non-consequential tools
   record nothing, and that the store round-trips into `agentloss report --store`.
 - `examples/sor_ladder_eval.py` — the **synthetic SoR ladder**
-  (`examples/gateway/sor_ladder_server.py`): one mock SoR, three rungs of outcome mess —
+  (`examples/gateway/sor_ladder_server.py`): one mock SoR, four rungs of outcome mess —
   level 0 explicit status enum; level 1 free-text note, amount column (outcome inferred);
-  level 2 note only (loss estimated too). Per rung it runs the whole agentic loop with zero
+  level 2 note only (loss estimated too); level 3 unknown status vocabulary (the mapping is
+  learned from the rows' own text at onboarding, then execution runs gold status mode).
+  Per rung it runs the whole agentic loop with zero
   hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
   report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
   loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
@@ -279,7 +285,7 @@ MCP. Both write the same shapes; both are honest about the denominator.
   synthetic SoR ladder (`examples/sor_ladder_eval.py`). Still open: an LLM reasoner rung
   (`detectors.reasoning` behind the same manifest contract) for evidence that marker
   vocabulary can't judge.
-- **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time: unknown status
-  vocabularies (statuses present but mapping unclear -> infer from them), paginated outcome
-  reads, outcomes split across tools (join two reads), delayed/duplicated resolutions, and a
-  live-LLM reasoner rung measured against the same oracle.
+- **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time:
+  ~~unknown status vocabularies~~ (✅ 0.0.19: learned from the rows' own text at init),
+  paginated outcome reads, outcomes split across tools (join two reads), delayed/duplicated
+  resolutions, and a live-LLM reasoner rung measured against the same oracle.
