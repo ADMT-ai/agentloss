@@ -288,10 +288,14 @@ def _follow_pages(call, name, first_result, paginate, max_pages=20):
     return rows
 
 
-def _row_paths(rows):
-    """Derive item.* paths from observed reversal rows."""
+def _row_paths(rows, prefer=()):
+    """Derive item.* paths from observed reversal rows. `prefer` biases the business_key
+    pick toward the money-mover's own noun (a row carrying both `case_id` and
+    `payment_id` joins decisions on the payment, not the case)."""
     fields = set().union(*[set(r) for r in rows]) if rows else set()
-    key = next((f for f in sorted(fields) if f.endswith("_id") and f != "id"), None)
+    id_fields = [f for f in sorted(fields) if f.endswith("_id") and f != "id"]
+    key = next((f for f in id_fields if any(f.startswith(n) for n in prefer)),
+               id_fields[0] if id_fields else None)
     key_todo = None
     if key is None and "id" in fields:
         key, key_todo = "id", ("'id' is likely the reversal's own id, not the disputed "
@@ -304,6 +308,53 @@ def _row_paths(rows):
     return key, key_todo, status, loss, observed
 
 
+def _discover_joins(manifest, tools, probed_rows, call, notes):
+    """An outcome read whose rows carry no dollar: the amount often lives in a SIBLING
+    read (a settlements/amounts table) sharing an id field. Probe the unclassified
+    zero-argument reads; if one shares an id with the outcome rows and carries an
+    amount, draft the `join` and point `loss` at `join.<amount>`."""
+    classified = set(manifest["tools"]) | set(manifest["outcomes"])
+    candidates = [t for t in tools
+                  if t.get("name", "") not in classified
+                  and _is_read(t.get("name", ""))
+                  and not ((t.get("inputSchema") or {}).get("required"))]
+    for oname, rows in probed_rows.items():
+        spec = manifest["outcomes"][oname]
+        loss = spec.get("loss")
+        if isinstance(loss, str) and not loss.startswith("_todo"):
+            continue                        # the rows already carry their dollar
+        fields = set().union(*[set(r) for r in rows])
+        links = [f for f in sorted(fields) if f.endswith("_id") and f != "id"
+                 and f"item.{f}" != spec.get("business_key")]
+        if not links:
+            continue
+        for cand in candidates:
+            cname = cand.get("name", "")
+            try:
+                result = call(cname)
+                items_path, jrows = _result_rows(result)
+                if not jrows:
+                    continue
+                jfields = set().union(*[set(r) for r in jrows])
+                link = next((f for f in links if f in jfields), None)
+                amount = next((a for a in _AMOUNT_PROPS if a in jfields), None)
+                if not (link and amount):
+                    continue
+                join = {"tool": cname, "items": items_path,
+                        "left": f"item.{link}", "right": f"item.{link}"}
+                paginate = _paginate_spec(result, cand)
+                if paginate:
+                    join["paginate"] = paginate
+                spec["join"] = join
+                spec["loss"] = f"join.{amount}"
+                spec.pop("loss_fallback", None)   # an explicit dollar beats the bound
+                notes.append(f"{oname}: its rows carry no amount — dollars joined "
+                             f"from {cname} on {link}.")
+                break
+            except Exception as e:
+                notes.append(f"probing join candidate {cname} failed ({e!r}).")
+
+
 # ---------------------------------------------------------------- drafting
 
 def draft_manifest(tools, use_case="gateway", call=None):
@@ -311,6 +362,10 @@ def draft_manifest(tools, use_case="gateway", call=None):
     zero-required-argument reversal candidates to derive row paths from real data."""
     manifest = {"version": 1, "use_case": use_case, "tools": {}, "outcomes": {}}
     notes = []
+    # the money-movers' own nouns bias which row id joins back to the decisions
+    prefer = sorted({w for t in tools if _is_money_mover(t)
+                     for w in _words(t.get("name", "")) if w in _MONEY_NOUNS})
+    probed_rows = {}
     for tool in tools:
         name = tool.get("name", "")
         if _is_money_mover(tool):
@@ -345,7 +400,8 @@ def draft_manifest(tools, use_case="gateway", call=None):
                         spec["paginate"] = paginate
                         rows = rows + _follow_pages(call, name, result, paginate)
                     if items_path is not None and rows:
-                        key, key_todo, status, loss, observed = _row_paths(rows)
+                        probed_rows[name] = rows
+                        key, key_todo, status, loss, observed = _row_paths(rows, prefer)
                         evidence = _evidence_fields(rows)
                         spec["items"] = items_path
                         spec["business_key"] = (f"item.{key}" if key else
@@ -412,6 +468,8 @@ def draft_manifest(tools, use_case="gateway", call=None):
                     "correct_statuses": ["_todo"],
                 })
             manifest["outcomes"][name] = spec
+    if call is not None:
+        _discover_joins(manifest, tools, probed_rows, call, notes)
     domain = _guess_domain(tools)
     if use_case == "gateway":               # no slug given: use the understood domain
         manifest["use_case"] = domain

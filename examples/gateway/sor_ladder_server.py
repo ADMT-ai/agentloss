@@ -23,6 +23,11 @@ numbers compared against one oracle:
   opaque cursor (`next_cursor` in the response, `cursor` argument in). Reading only
   page one would silently under-count; onboarding must detect the cursor and the
   gateway must follow it to the end.
+- **level 5 — outcome split across two tools**: `list_return_cases` rows carry the
+  payment, the case id, and the status — but NO dollar; the amounts live in
+  `list_settlement_amounts`, keyed by case. Onboarding must pick `payment_id` (not
+  `case_id`) as the join key back to the decisions, discover the sibling read, and
+  draft the join; sync executes it — gold, realized dollars.
 
 The oracle rule (same at every level, keyed on the customer suffix):
 `-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
@@ -61,12 +66,17 @@ LEVELS = {
     3: ("list_dispute_settlements", "Settlement records for disputed payments.", None),
     4: ("list_disputes", "Disputes raised against payments, two per page.",
         {"cursor": {"type": "string", "description": "Opaque page cursor."}}),
+    5: ("list_return_cases", "Return cases opened against payments.", None),
 }
 PAGE_SIZE = 2
+AMOUNTS_TOOL = {"name": "list_settlement_amounts",
+                "description": "Settled dollar amounts, by case.",
+                "inputSchema": {"type": "object", "properties": {}}}
 
 
 def _rows(level):
-    level = 0 if level == 4 else level      # level 4 = level 0 rows, served in pages
+    split = level == 5                      # level 5 = level 0 verdicts, dollar elsewhere
+    level = 0 if level in (4, 5) else level  # levels 4/5 reuse level 0's row shapes
     rows = []
     for pid, amount, currency, customer in PAYMENTS:
         partial = round(amount * PARTIAL_FRACTION, 2)
@@ -124,7 +134,23 @@ def _rows(level):
                        "summary": "case open, awaiting customer evidence"}}[level]
         else:
             continue
+        if split:           # the case list: payment + case + status, NO dollar
+            row = {"case_id": f"case_{pid}", "payment_id": pid,
+                   "status": row["status"]}
         rows.append(row)
+    return rows
+
+
+def _settlement_amounts():
+    """Level 5's sibling read: the dollar for each case, keyed by case_id."""
+    rows = []
+    for pid, amount, currency, customer in PAYMENTS:
+        if customer.split("-")[-1] not in ("fraud", "partial", "won", "contested",
+                                           "pending"):
+            continue
+        settled = round(amount * PARTIAL_FRACTION, 2) \
+            if customer.endswith("-partial") else amount
+        rows.append({"case_id": f"case_{pid}", "amount": settled})
     return rows
 
 
@@ -141,9 +167,14 @@ def call_tool(level, name, args):
         payload = {"customer": args["customer"], "standing": "good"}
         return {"content": [{"type": "text", "text": json.dumps(payload)}],
                 "structuredContent": payload, "isError": False}
+    if level == 5 and name == "list_settlement_amounts":
+        payload = {"amounts": _settlement_amounts()}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "structuredContent": payload, "isError": False}
     if name == outcome_tool:
         key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
-               "list_case_notes": "cases", "list_dispute_settlements": "settlements"}[outcome_tool]
+               "list_case_notes": "cases", "list_dispute_settlements": "settlements",
+               "list_return_cases": "cases"}[outcome_tool]
         rows = _rows(level)
         if level == 4:      # served in pages; the cursor is an opaque offset
             start = int(args.get("cursor") or 0)
@@ -168,8 +199,10 @@ def handle(level, msg):
             "capabilities": {"tools": {}},
             "serverInfo": {"name": f"sor-ladder-l{level}", "version": "0"}}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": mid,
-                "result": {"tools": _base_tools(*LEVELS[level])}}
+        tools = _base_tools(*LEVELS[level])
+        if level == 5:
+            tools.append(AMOUNTS_TOOL)
+        return {"jsonrpc": "2.0", "id": mid, "result": {"tools": tools}}
     if method == "tools/call":
         params = msg.get("params") or {}
         return {"jsonrpc": "2.0", "id": mid,

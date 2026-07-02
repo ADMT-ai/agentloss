@@ -341,9 +341,13 @@ class Gateway:
         for tool, spec in specs.items():
             census = census or bool(spec.get("census", True))
             rows = self._fetch_rows(tool, spec)
+            joined = self._fetch_join(spec.get("join"))
             infer = spec.get("mode") == "infer"
             for row in rows:
                 roots = {"item": row}
+                if joined is not None:
+                    j = _resolve(spec["join"].get("left"), roots)
+                    roots["join"] = joined.get(str(j), {})
                 key = _resolve(spec.get("business_key"), roots)
                 if key is None:
                     continue
@@ -406,6 +410,20 @@ class Gateway:
                 break
             args[pag.get("arg", "cursor")] = cursor
         return rows
+
+    def _fetch_join(self, join):
+        """The outcome's dollar (or evidence) can live in a SECOND read: `join` declares
+        {"tool", "items", "left", "right"} — fetch the other tool's rows once, index them
+        by `right`, and each outcome row's `left` value selects its joined row, exposed
+        to the spec's paths under the `join.` root (e.g. "loss": "join.amount")."""
+        if not join:
+            return None
+        lookup = {}
+        for row in self._fetch_rows(join.get("tool"), join):
+            k = _resolve(join.get("right"), {"item": row})
+            if k is not None:
+                lookup[str(k)] = row
+        return lookup
 
     def _sync_inferred(self, key, spec, roots, seen, totals):
         """One infer-mode row: read the evidence, infer the outcome, estimate the loss."""

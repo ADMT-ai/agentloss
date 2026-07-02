@@ -142,3 +142,36 @@ def test_pagination_detected_and_followed():
     assert out["paginate"] == {"cursor": "result.next_cursor", "arg": "cursor"}
     # "won" lives on page two — mapping it proves the probe followed the cursor
     assert out["error_statuses"] == ["lost"] and out["correct_statuses"] == ["won"]
+
+
+def test_business_key_prefers_the_money_movers_noun():
+    # rows carry case_id AND payment_id; the mover is create_payment, so the join key
+    # back to the decisions must be payment_id (case_id would join nothing)
+    def call(name, arguments=None):
+        rows = [{"case_id": "c1", "payment_id": "p1", "status": "lost"},
+                {"case_id": "c2", "payment_id": "p2", "status": "won"}]
+        return {"content": [{"type": "text", "text": json.dumps({"cases": rows})}]}
+
+    m = draft_manifest([_tool("create_payment", {"amount": {"type": "number"}}),
+                        _tool("list_return_cases")], call=call)
+    assert m["outcomes"]["list_return_cases"]["business_key"] == "item.payment_id"
+
+
+def test_join_discovered_for_dollarless_outcome_rows():
+    def call(name, arguments=None):
+        if name == "list_return_cases":
+            rows = {"cases": [{"case_id": "c1", "payment_id": "p1", "status": "lost"},
+                              {"case_id": "c2", "payment_id": "p2", "status": "won"}]}
+        else:
+            rows = {"amounts": [{"case_id": "c1", "amount": 80.0},
+                                {"case_id": "c2", "amount": 30.0}]}
+        return {"content": [{"type": "text", "text": json.dumps(rows)}]}
+
+    m = draft_manifest([_tool("create_payment", {"amount": {"type": "number"}}),
+                        _tool("list_return_cases"),
+                        _tool("list_settlement_amounts")], call=call)
+    out = m["outcomes"]["list_return_cases"]
+    assert out["join"] == {"tool": "list_settlement_amounts", "items": "result.amounts",
+                           "left": "item.case_id", "right": "item.case_id"}
+    assert out["loss"] == "join.amount"
+    assert "list_settlement_amounts" not in m["outcomes"]

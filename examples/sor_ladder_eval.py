@@ -13,6 +13,9 @@ Every system of record writes its outcomes differently; the ladder proves the sa
     level 4 — paginated outcome read          -> the cursor is detected at onboarding
                                                  and followed to the end at sync; page
                                                  one alone would under-count
+    level 5 — outcome split across two tools  -> the case list carries the verdict, a
+                                                 sibling read carries the dollar; the
+                                                 join is discovered and executed
 
 Per level, with zero hand-written config:
 1. **Onboard**: `agentloss gateway init` against the seeded server; assert it understood
@@ -53,8 +56,9 @@ ORACLE_CENSUS = ORACLE_DECISIONS - ORACLE_ERRORS - ORACLE_CORRECT - ORACLE_NONFI
 ORACLE_RATE = ORACLE_ERRORS / (ORACLE_DECISIONS - ORACLE_NONFINAL)
 
 OUTCOME_TOOLS = {0: "list_disputes", 1: "list_resolution_notes", 2: "list_case_notes",
-                 3: "list_dispute_settlements", 4: "list_disputes"}
-GOLD_LEVELS = (0, 3, 4)     # rungs whose execution yields gold, realized dollars
+                 3: "list_dispute_settlements", 4: "list_disputes",
+                 5: "list_return_cases"}
+GOLD_LEVELS = (0, 3, 4, 5)  # rungs whose execution yields gold, realized dollars
 
 _checks = []
 
@@ -91,7 +95,7 @@ def onboard(level, tmp):
           json.dumps(out))
     check(f"L{level} onboard: join key probed", out.get("business_key") == "item.payment_id",
           json.dumps(out))
-    if level in (0, 4):
+    if level in (0, 4, 5):
         check(f"L{level} onboard: statuses mapped",
               out.get("error_statuses") == ["lost"] and out.get("correct_statuses") == ["won"],
               json.dumps(out))
@@ -121,6 +125,18 @@ def onboard(level, tmp):
         check("L4 onboard: pagination detected and declared",
               out.get("paginate") == {"cursor": "result.next_cursor", "arg": "cursor"},
               json.dumps(out))
+    if level == 5:
+        # the rows carry case_id AND payment_id: the business key must be the one that
+        # joins back to the decisions, and the dollar must come from the sibling read
+        check("L5 onboard: sibling read NOT mistaken for an outcome channel",
+              "list_settlement_amounts" not in m["outcomes"], json.dumps(m["outcomes"]))
+        check("L5 onboard: join discovered",
+              out.get("join", {}).get("tool") == "list_settlement_amounts"
+              and out["join"].get("left") == "item.case_id"
+              and out["join"].get("right") == "item.case_id",
+              json.dumps(out))
+        check("L5 onboard: loss taken from the joined row",
+              out.get("loss") == "join.amount", json.dumps(out))
     return manifest_path
 
 

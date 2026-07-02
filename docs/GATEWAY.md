@@ -129,6 +129,13 @@ An outcome tool that pages its rows declares `"paginate": {"cursor":
 response's cursor until it comes back empty, so page one alone never under-counts. `init`
 detects the cursor from the probed response shape and drafts this itself.
 
+An outcome whose dollar lives in a SIBLING read (a case list with the verdict, a
+settlements table with the amount) declares `"join": {"tool", "items", "left", "right"}`
+— sync fetches the joined rows once, and each outcome row's `left` id selects its joined
+row, exposed to the spec's paths under the `join.` root (`"loss": "join.amount"`). `init`
+discovers this too: when probed outcome rows carry no amount, it probes the unclassified
+zero-argument reads for a shared id field plus an amount column and drafts the join.
+
 ### Soft outcomes — infer the outcome, estimate the loss
 
 Not every SoR writes `"status": "lost"`. Often the resolution lives in **free text** (a
@@ -264,7 +271,9 @@ MCP. Both write the same shapes; both are honest about the denominator.
   level 2 note only (loss estimated too); level 3 unknown status vocabulary (the mapping is
   learned from the rows' own text at onboarding, then execution runs gold status mode);
   level 4 paginated outcome read (cursor detected at onboarding, followed to the end at
-  sync). Per rung it runs the whole agentic loop with zero
+  sync); level 5 outcome split across two tools (the join is discovered at onboarding —
+  including picking the id that joins back to the decisions, not the case — and executed
+  at sync). Per rung it runs the whole agentic loop with zero
   hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
   report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
   loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
@@ -294,5 +303,6 @@ MCP. Both write the same shapes; both are honest about the denominator.
 - **Higher ladder rungs** — the next kinds of mess, one eval'd rung at a time:
   ~~unknown status vocabularies~~ (✅ 0.0.19: learned from the rows' own text at init),
   ~~paginated outcome reads~~ (✅ 0.0.20: `paginate` — cursor detected at init, followed at
-  sync), outcomes split across tools (join two reads), delayed/duplicated resolutions, and a
-  live-LLM reasoner rung measured against the same oracle.
+  sync), ~~outcomes split across tools~~ (✅ 0.0.21: `join` — discovered at init, executed at
+  sync), delayed/duplicated resolutions, and a live-LLM reasoner rung measured against the
+  same oracle.
