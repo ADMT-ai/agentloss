@@ -58,6 +58,7 @@ ul.findings li:last-child { border-bottom: 0; }
 .icon { font-weight: 700; width: 44px; flex: none; font-size: 12px; }
 .icon.ok { color: var(--good-text); } .icon.warn { color: #8a5b00; }
 .icon.fail { color: var(--crit); }
+em.fix { display: block; font-style: normal; color: var(--muted); font-size: 12px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th { text-align: left; color: var(--ink-2); font-weight: 600;
      border-bottom: 1px solid var(--hairline); padding: 6px 8px 6px 0; }
@@ -93,6 +94,23 @@ def _tile(label, value, note=""):
     note_html = f'<div class="note">{_e(note)}</div>' if note else ""
     return (f'<div class="tile"><div class="label">{_e(label)}</div>'
             f'<div class="value">{_e(value)}</div>{note_html}</div>')
+
+
+def _dynamics(report):
+    acc, stab = report.get("accumulation"), report.get("stability")
+    if not acc or not stab:
+        return ""
+    parts = [f"worst loss event {_money(acc['max_event_loss_usd'])} across "
+             f"{acc['max_event_decisions']} decision(s)",
+             f"max 24h {_money(acc['max_24h_loss_usd'])}",
+             f"max 7d {_money(acc['max_7d_loss_usd'])}"]
+    if stab.get("recent") and stab.get("baseline"):
+        verdict = "DRIFTING" if stab["drifting"] else "stable"
+        parts.append(f"recent {stab['recent_days']}d rate "
+                     f"{_pct(stab['recent']['rate'])} vs baseline "
+                     f"{_pct(stab['baseline']['rate'])} ({verdict})")
+    return ('<h2>Loss dynamics</h2><div class="facts">'
+            + _e(" · ".join(parts)) + "</div>")
 
 
 def render_html(report, store_path=""):
@@ -154,13 +172,17 @@ def render_html(report, store_path=""):
               '<th>Exposure</th><th>Rate</th><th>Expected loss</th><th>LTX</th></tr>'
             + seg_rows + "</table>")
 
+    # every check, verdict AND substance — an underwriter audits the checklist, not a
+    # summary line. Problems first, then the passed checks with their observed counts.
     icons = {"ok": "PASS", "warn": "WARN", "fail": "FAIL", "info": "INFO"}
+    order = {"fail": 0, "warn": 1, "info": 2, "ok": 3}
     findings = "".join(
         f'<li><span class="icon {f["level"]}">{icons.get(f["level"], "·")}</span>'
-        f'<span><strong>{_e(f["id"])}</strong> — {_e(f["message"])}</span></li>'
-        for f in report["qualification"] if f["level"] != "ok")
-    findings = findings or ('<li><span class="icon ok">PASS</span>'
-                            '<span>All qualification checks pass.</span></li>')
+        f'<span><strong>{_e(f["id"])}</strong> — {_e(f["message"])}'
+        + (f' <em class="fix">{_e(f["fix"])}</em>' if f.get("fix")
+           and f["level"] in ("warn", "fail") else "")
+        + "</span></li>"
+        for f in sorted(report["qualification"], key=lambda f: order.get(f["level"], 2)))
 
     binding_note = (_e(b["requirement"]) if b["requirement"] else
                     "Live middleware capture present — the record is kept in force by "
@@ -182,6 +204,7 @@ def render_html(report, store_path=""):
 <div class="tiles">{tiles}</div>
 <div class="facts">{e["decisions"]} decisions recorded · {e["granting"]} granting ·
 sources: {_e(", ".join(f"{k} ({v})" for k, v in sorted(ev["sources"].items())))}</div>
+{_dynamics(report)}
 {cmp_html}
 <h2>Qualification</h2>
 <ul class="findings">{findings}</ul>

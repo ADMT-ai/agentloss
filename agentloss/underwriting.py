@@ -10,6 +10,7 @@ from .core import STORE
 from .doctor import _worst, run_checks
 from .metrics import REALIZED_LOSS_SOURCES, false_approve, wilson
 from .report import Params
+from .stability import accumulation, stability
 
 __all__ = ["underwriting_report", "qualification_checks"]
 
@@ -147,7 +148,25 @@ def underwriting_report(cfg=None, agent=None, baseline=None):
     for o in outcomes.values():
         sources[o.source] = sources.get(o.source, 0) + 1
 
-    qual = qualification_checks() + run_checks()
+    acc = accumulation(STORE)
+    stab = stability(STORE)
+    qual = qualification_checks() + run_checks(approve_actions=_GRANTING)
+    if stab["drifting"]:
+        qual.insert(0, _f(
+            "warn", "loss_rate_drift",
+            f"The recent {stab['recent_days']}-day wrongful rate "
+            f"({stab['recent']['rate']:.1%}) is incompatible with the baseline "
+            f"({stab['baseline']['rate']:.1%}) — the priced assumptions may no "
+            "longer hold.",
+            "Investigate what changed (agent update, new customer mix, new abuse "
+            "pattern); re-run the assessment before relying on the old numbers."))
+    if acc["rows_without_ts"]:
+        qual.append(_f(
+            "warn", "timestamps_missing",
+            f"{acc['rows_without_ts']} evidenced decision(s) carry no timestamp — "
+            "excluded from accumulation/stability, and submissions require them.",
+            "Backfill with a ts= column mapping, or capture live (timestamps are "
+            "stamped automatically)."))
     level = _worst(qual)
     qualifies = level != "fail"
     total_exposure = sum(exposures)
@@ -214,5 +233,9 @@ def underwriting_report(cfg=None, agent=None, baseline=None):
         },
         "segments": segments,
         "baseline_comparison": comparison,
+        # loss DYNAMICS: the correlated tail and the timeline (agentloss.stability).
+        # The report carries the summary; the full event list is API-level.
+        "accumulation": {k: v for k, v in acc.items() if k != "events"},
+        "stability": {**stab, "months": stab["months"][-24:]},
         "qualification": qual,
     }

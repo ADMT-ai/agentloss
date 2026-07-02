@@ -20,6 +20,7 @@ EVALS = [
     "examples/sor_ladder_eval.py",
     "examples/underwriting_eval.py",
     "examples/backfill_eval.py",
+    "examples/stability_eval.py",
     "examples/import_eval.py",
     "examples/webhook_eval.py",
     "examples/verifier_offline_test.py",

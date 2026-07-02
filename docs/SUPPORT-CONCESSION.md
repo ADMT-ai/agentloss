@@ -97,6 +97,11 @@ actuary needs — all derived from the store, nothing self-reported:
   loss-to-exposure — the raw loss ratio a premium is priced against;
 - **evidence**: outcome coverage, gold/silver mix, source breakdown, sampling design
   (census vs QA-sample with pi);
+- **accumulation**: wrongful decisions chained into LOSS EVENTS (a bad update or viral
+  exploit is one incident, not N independent errors), worst event, max rolling 24h/7d
+  aggregates — the correlated tail a per-event sublimit prices;
+- **stability**: the monthly rate/loss series and a recent-vs-baseline drift verdict —
+  whether the priced assumptions still hold (a drifting record warns in qualification);
 - **qualification**: the pass/warn/fail findings from the checks above.
 
 ## Backfill — day-one actuarial history, and the human baseline

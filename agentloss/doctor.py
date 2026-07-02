@@ -27,8 +27,10 @@ def _worst(findings):
     return max((f["level"] for f in findings), key=lambda l: _ORDER[l], default="ok")
 
 
-def run_checks():
-    """Inspect the in-process STORE and return a list of findings (ok/warn/fail)."""
+def run_checks(approve_actions=("approve",)):
+    """Inspect the in-process STORE and return a list of findings (ok/warn/fail).
+    `approve_actions` names the committing-action vocabulary (a support vertical
+    grants/partials; an AP vertical approves) — same parameter as metrics."""
     findings = []
     decisions = STORE.decisions
     outcomes = STORE.outcomes
@@ -46,7 +48,7 @@ def run_checks():
     findings.append(_f("ok", "decisions_present",
                        f"{len(decisions)} decision(s) captured."))
 
-    approved = [d for d in decisions.values() if d.action == "approve"]
+    approved = [d for d in decisions.values() if d.action in approve_actions]
 
     # 2) Are any outcomes reported at all?
     if not outcomes:
@@ -78,13 +80,15 @@ def run_checks():
     elif approved and not sampled_approvals:
         findings.append(_f(
             "warn", "outcomes_sampled",
-            "Some outcomes are sampled, but none of them is on an 'approve' decision — the "
-            "false-approve rate (denominator = sampled approvals) will be 0/0 = 0%.",
-            "Report outcomes for the approved decisions too, not only for held/rejected ones.",
+            "Some outcomes are sampled, but none of them is on a committing decision — "
+            "the false-approve rate (denominator = sampled committing decisions) will "
+            "be 0/0 = 0%.",
+            "Report outcomes for the committing decisions too, not only for held/rejected ones.",
         ))
     else:
         findings.append(_f("ok", "outcomes_sampled",
-                           f"{len(sampled_approvals)} sampled approval(s) feed the rate."))
+                           f"{len(sampled_approvals)} sampled committing decision(s) "
+                           "feed the rate."))
 
     # 4) Denominator collapse: only error/exception outcomes reported (no correct ones), so
     #    the rate reads ~100%. A correct outcome is one where ground_truth == the action taken.

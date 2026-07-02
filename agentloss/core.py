@@ -47,9 +47,12 @@ class Store:
         self.decisions = {}     # business_key -> Decision
         self.outcomes = {}      # business_key -> Outcome
 
-    def record(self, d: Decision) -> Decision:
+    def record(self, d: Decision, stamp: bool = True) -> Decision:
+        """stamp=True (live capture): a missing ts is stamped now. stamp=False
+        (backfill): a historical row with no date stays timestampless — an absent
+        time is reported absent, never fabricated as today."""
         d.decision_id = f"d_{next(_counter)}"
-        if not d.ts:
+        if stamp and not d.ts:
             d.ts = _now()
         self.decisions[d.business_key] = d
         return d
