@@ -117,7 +117,9 @@ losses. The report then carries per-decider segments and the **baseline comparis
 the agent's wrongful-grant rate and loss-to-exposure against the human team it replaced
 (`cheaper_to_insure` is the sentence that raises an autonomy ceiling). Silver-only
 backfills are flagged uncalibrated — feed a QA gold budget in and calibrate before
-anyone prices off them.
+anyone prices off them. The record also exports directly as an insurer's data
+submission: `agentloss export --format aisure --store s.jsonl --out submission.csv`
+(docs/AISURE.md — the Munich Re aiSure agentic-AI template, column for column).
 
 ## Proven by
 
