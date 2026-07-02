@@ -117,7 +117,10 @@ losses. The report then carries per-decider segments and the **baseline comparis
 the agent's wrongful-grant rate and loss-to-exposure against the human team it replaced
 (`cheaper_to_insure` is the sentence that raises an autonomy ceiling). Silver-only
 backfills are flagged uncalibrated — feed a QA gold budget in and calibrate before
-anyone prices off them.
+anyone prices off them. The record also exports directly as an insurer's tabular data
+submission — decisions joined to ground truth with the loss per row:
+`agentloss export --store s.jsonl --out submission.csv [--template insurer.json]`
+(a template file remaps the columns onto a specific application form's headers).
 
 ## Proven by
 

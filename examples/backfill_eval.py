@@ -127,7 +127,9 @@ def main():
     write_history(zd, header=("Ticket Id", "Refund Amount", "Assignee",
                               "Resolution Notes"),
                   extra=(("Status", lambda i: "solved" if i % 3 else "closed"),
-                         ("Subject", lambda i: f"Refund request #{i}")))
+                         ("Subject", lambda i: f"Refund request #{i}"),
+                         ("Created At", lambda i: f"2025-{(i % 12) + 1:02d}-15"),
+                         ("Requester", lambda i: f"cust_{i:03d}")))
     proc = subprocess.run(
         [sys.executable, "-m", "agentloss.cli", "backfill", "--csv", zd,
          "--store", store2, "--json"],
@@ -151,6 +153,49 @@ def main():
           abs(r2["segments"]["support_agent"]["loss_to_exposure"] - 0.04) < 1e-9
           and abs(r2["segments"]["human_team"]["loss_to_exposure"] - 0.15) < 1e-9,
           str(r2["segments"]))
+
+    # the underwriting submission: the record as the flat decisions-vs-ground-truth
+    # table insurers require (typically a year+ of records — which backfill produces)
+    sub_path = os.path.join(tmp, "submission.csv")
+    proc = subprocess.run(
+        [sys.executable, "-m", "agentloss.cli", "export",
+         "--store", store2, "--out", sub_path],
+        capture_output=True, text=True, timeout=60)
+    check("submission: export exits 0", proc.returncode == 0, proc.stderr)
+    with open(sub_path, newline="", encoding="utf-8") as f:
+        sub = list(csv.reader(f))
+    check("submission: default header",
+          sub[0] == ["timestamp", "customer_id", "use_case", "action",
+                     "ground_truth", "expected_loss_usd"], str(sub[0]))
+    check("submission: one row per evidenced decision", len(sub) - 1 == 16,
+          str(len(sub)))
+    check("submission: historical timestamps carried from the export",
+          all(row[0].startswith("2025-") for row in sub[1:]), str(sub[1][:2]))
+    check("submission: customer dimension carried",
+          all(row[1].startswith("cust_") for row in sub[1:]), str(sub[1][:2]))
+    losses = [float(row[5]) for row in sub[1:]]
+    check("submission: loss column totals the seeded truth",
+          abs(sum(losses) - 160.0) < 1e-9 and losses.count(0.0) == 13, str(sum(losses)))
+
+    # an insurer-specific template remaps headers/order without touching the data —
+    # presets for specific application forms stay out of the public repo by design
+    tpl = os.path.join(tmp, "insurer.json")
+    with open(tpl, "w", encoding="utf-8") as f:
+        json.dump({"columns": [["Decision Time", "ts"], ["Client", "customer"],
+                               ["Loss (USD)", "loss"],
+                               ["Correct Decision", "ground_truth"]]}, f)
+    proc = subprocess.run(
+        [sys.executable, "-m", "agentloss.cli", "export", "--store", store2,
+         "--out", sub_path, "--template", tpl],
+        capture_output=True, text=True, timeout=60)
+    check("submission: template export exits 0", proc.returncode == 0, proc.stderr)
+    with open(sub_path, newline="", encoding="utf-8") as f:
+        sub = list(csv.reader(f))
+    check("submission: templated header/order",
+          sub[0] == ["Decision Time", "Client", "Loss (USD)", "Correct Decision"],
+          str(sub[0]))
+    check("submission: templated loss column intact",
+          abs(sum(float(r[2]) for r in sub[1:]) - 160.0) < 1e-9, str(sub[1]))
 
     # the artifact: the same truths, rendered for a human decision-maker
     page = open(html_path, encoding="utf-8").read()

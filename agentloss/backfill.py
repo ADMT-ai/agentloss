@@ -27,7 +27,8 @@ from .persist import append_decision, append_outcome
 __all__ = ["backfill_csv", "backfill_rows", "suggest_backfill_mapping"]
 
 # mapping keys: business_key + amount are required; the rest optional
-_KNOWN = ("business_key", "amount", "decider", "action", "evidence", "status")
+_KNOWN = ("business_key", "amount", "decider", "action", "evidence", "status",
+          "customer", "ts")
 
 # Column-name conventions of the exports people actually have (Zendesk, Intercom,
 # Front, homegrown warehouse pulls), normalized: lowercase, non-alnum -> _.
@@ -47,6 +48,10 @@ _SYNONYMS = {
                  "body", "description", "summary"),
     "status": ("qa_status", "qa_verdict", "qa_outcome", "review_status",
                "review_outcome", "audit_status", "audit_outcome", "verdict"),
+    "customer": ("customer_id", "customer", "requester_id", "requester", "user_id",
+                 "account_id", "end_user"),
+    "ts": ("timestamp", "created_at", "opened_at", "date", "created", "resolved_at",
+           "closed_at"),
 }
 _AMOUNT_HINTS = ("amount", "refund", "credit", "value", "total")
 
@@ -102,7 +107,8 @@ def suggest_backfill_mapping(fieldnames, sample_rows=()):
     mapping["amount"] = amount or "_todo: which column carries the concession amount?"
 
     for optional, validate in (("decider", None), ("action", None),
-                               ("evidence", _is_text_col), ("status", None)):
+                               ("evidence", _is_text_col), ("status", None),
+                               ("customer", None), ("ts", None)):
         col = pick(optional, validate)
         if col is not None:
             mapping[optional] = col
@@ -148,8 +154,13 @@ def backfill_rows(rows, mapping, *, use_case="support_concession",
             if "action" in mapping else default_action
         decider = str(row.get(mapping["decider"], "") or "unknown") \
             if "decider" in mapping else "unknown"
+        customer = str(row.get(mapping["customer"], "") or "") \
+            if "customer" in mapping else ""
+        # historical time comes from the export itself, so the record IS the history
+        ts = str(row.get(mapping["ts"], "") or "") if "ts" in mapping else ""
         d = STORE.record(Decision(action=action, value_at_risk_usd=amount,
-                                  business_key=key, use_case=use_case, model=decider))
+                                  business_key=key, use_case=use_case, model=decider,
+                                  customer=customer, ts=ts))
         if store_path:
             append_decision(d, store_path)
         counts["decisions"] += 1

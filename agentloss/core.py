@@ -2,8 +2,13 @@
 shapes from docs/SDK-SPEC.md (here as plain objects instead of OTel spans)."""
 import itertools
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 _counter = itertools.count(1)
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 @dataclass
@@ -17,6 +22,10 @@ class Decision:
     decision_id: str = ""
     context: str = ""           # optional evidence for the verifier (agent input/output); local-only
     currency: str = "USD"       # display currency for the amounts (the amounts are in this currency)
+    customer: str = ""          # the customer the decision concerned (underwriting submissions
+                                # segment by customer; backfill maps it from the export)
+    ts: str = ""                # when the decision was made (UTC ISO-8601). Set explicitly for
+                                # backfilled history; stamped at record time otherwise.
 
 
 @dataclass
@@ -30,6 +39,7 @@ class Outcome:
     estimated_loss_usd: float = None
     sampled: bool = False       # included in the random rate-estimation sample?
     pi: float = None            # inclusion probability (for Horvitz-Thompson reweighting)
+    ts: str = ""                # when the outcome resolved/was recorded (UTC ISO-8601)
 
 
 class Store:
@@ -39,10 +49,13 @@ class Store:
 
     def record(self, d: Decision) -> Decision:
         d.decision_id = f"d_{next(_counter)}"
+        if not d.ts:
+            d.ts = _now()
         self.decisions[d.business_key] = d
         return d
 
     def add_outcome(self, business_key, **kw):
+        kw.setdefault("ts", _now())
         self.outcomes[business_key] = Outcome(**kw)
 
     def has_gold(self, business_key):

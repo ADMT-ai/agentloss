@@ -167,6 +167,29 @@ def _backfill_cmd(args):
     return 0
 
 
+def _export_cmd(args):
+    if not _load_store_arg(args):
+        print("agentloss export needs --store <path> (the audit record).",
+              file=sys.stderr)
+        return 2
+    from .submission import DEFAULT_COLUMNS, load_template, write_submission_csv
+    try:
+        columns = load_template(args.template) if args.template else DEFAULT_COLUMNS
+    except (OSError, ValueError, KeyError) as e:
+        print(f"bad template: {e}", file=sys.stderr)
+        return 2
+    n = write_submission_csv(args.out, columns)
+    from .core import STORE
+    missing_ts = sum(1 for d in STORE.decisions.values()
+                     if d.business_key in STORE.outcomes and not d.ts)
+    print(f"wrote {args.out}: {n} evidenced decision(s) in submission format",
+          file=sys.stderr)
+    if missing_ts:
+        print(f"note: {missing_ts} row(s) have no timestamp — backfill with a ts= "
+              "column mapping (or capture live) before submitting.", file=sys.stderr)
+    return 0
+
+
 def _import_cmd(args):
     from .importer import import_csv, suggest_mapping
     import csv as _csv
@@ -264,6 +287,16 @@ def main(argv=None):
     p_bf.add_argument("--store", required=True, help="JSONL store to write the record to")
     p_bf.add_argument("--json", action="store_true", help="machine-readable output")
     p_bf.set_defaults(func=_backfill_cmd)
+
+    p_ex = sub.add_parser("export",
+                          help="render the audit record as an insurer's tabular data "
+                               "submission (decisions joined to ground truth + loss)")
+    p_ex.add_argument("--template", metavar="PATH",
+                      help="JSON column template mapping record fields onto a specific "
+                           "insurer's headers/order (see agentloss/submission.py)")
+    p_ex.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
+    p_ex.add_argument("--out", required=True, help="output CSV path")
+    p_ex.set_defaults(func=_export_cmd)
 
     p_imp = sub.add_parser("import", help="batch outcomes from a CSV export (the warehouse "
                                           "channel); omit --map to draft one from the header")
