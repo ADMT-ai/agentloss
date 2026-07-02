@@ -136,6 +136,12 @@ row, exposed to the spec's paths under the `join.` root (`"loss": "join.amount"`
 discovers this too: when probed outcome rows carry no amount, it probes the unclassified
 zero-argument reads for a shared id field plus an amount column and drafts the join.
 
+A read that keeps the appeal HISTORY duplicates its keys — a revised ruling, not two
+outcomes. Sync keeps one row per `business_key`: the greatest `"latest_by":
+"item.revised_at"` value when declared (ISO timestamps compare correctly; zero-pad
+numeric sequences), else the last row in list order (the importer's rule). `init` drafts
+`latest_by` when it observes duplicated keys and a revision/date field.
+
 ### Soft outcomes — infer the outcome, estimate the loss
 
 Not every SoR writes `"status": "lost"`. Often the resolution lives in **free text** (a
@@ -273,7 +279,9 @@ MCP. Both write the same shapes; both are honest about the denominator.
   level 4 paginated outcome read (cursor detected at onboarding, followed to the end at
   sync); level 5 outcome split across two tools (the join is discovered at onboarding —
   including picking the id that joins back to the decisions, not the case — and executed
-  at sync). Per rung it runs the whole agentic loop with zero
+  at sync); level 6 revised rulings (the appeal history duplicates keys, newest served
+  first — only each payment's latest ruling counts). Per rung it runs the whole agentic
+  loop with zero
   hand-written config — onboard (`gateway init`), execute (scripted agent), deliver (sync +
   report + doctor through the same connection) — and asserts the SAME oracle rate and dollar
   loss come back: realized dollars at level 0, expected (silver) dollars above it. This is the
@@ -304,5 +312,5 @@ MCP. Both write the same shapes; both are honest about the denominator.
   ~~unknown status vocabularies~~ (✅ 0.0.19: learned from the rows' own text at init),
   ~~paginated outcome reads~~ (✅ 0.0.20: `paginate` — cursor detected at init, followed at
   sync), ~~outcomes split across tools~~ (✅ 0.0.21: `join` — discovered at init, executed at
-  sync), delayed/duplicated resolutions, and a live-LLM reasoner rung measured against the
-  same oracle.
+  sync), ~~delayed/duplicated resolutions~~ (✅ 0.0.22: `latest_by` — revisions deduped,
+  latest ruling wins), and a live-LLM reasoner rung measured against the same oracle.

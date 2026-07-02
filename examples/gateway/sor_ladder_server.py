@@ -28,6 +28,11 @@ numbers compared against one oracle:
   `list_settlement_amounts`, keyed by case. Onboarding must pick `payment_id` (not
   `case_id`) as the join key back to the decisions, discover the sibling read, and
   draft the join; sync executes it — gold, realized dollars.
+- **level 6 — revised rulings (delayed/duplicated resolutions)**: `list_dispute_rulings`
+  keeps the appeal HISTORY — the same payment appears twice, and the list is served
+  newest-first, so "last row wins" picks the STALE ruling and counting every row
+  double-counts. Onboarding must spot the duplicates and the `revised_at` field;
+  sync must keep only each payment's latest ruling.
 
 The oracle rule (same at every level, keyed on the customer suffix):
 `-fraud` -> error, full amount lost; `-partial` -> error, 40% of the amount lost;
@@ -67,6 +72,7 @@ LEVELS = {
     4: ("list_disputes", "Disputes raised against payments, two per page.",
         {"cursor": {"type": "string", "description": "Opaque page cursor."}}),
     5: ("list_return_cases", "Return cases opened against payments.", None),
+    6: ("list_dispute_rulings", "Dispute rulings, including revisions on appeal.", None),
 }
 PAGE_SIZE = 2
 AMOUNTS_TOOL = {"name": "list_settlement_amounts",
@@ -75,6 +81,8 @@ AMOUNTS_TOOL = {"name": "list_settlement_amounts",
 
 
 def _rows(level):
+    if level == 6:
+        return _ruling_rows()
     split = level == 5                      # level 5 = level 0 verdicts, dollar elsewhere
     level = 0 if level in (4, 5) else level  # levels 4/5 reuse level 0's row shapes
     rows = []
@@ -141,6 +149,33 @@ def _rows(level):
     return rows
 
 
+def _ruling_rows():
+    """Level 6: the appeal history, newest ruling FIRST in the list — so naive
+    'last row wins' picks the stale ruling, and counting every row double-counts."""
+    t_first, t_appeal = "2026-06-01T00:00:00Z", "2026-06-15T00:00:00Z"
+    rows = []
+    for pid, amount, currency, customer in PAYMENTS:
+        partial = round(amount * PARTIAL_FRACTION, 2)
+
+        def row(status, amt, ts):
+            return {"payment_id": pid, "status": status, "amount": amt,
+                    "revised_at": ts}
+        if customer.endswith("-fraud"):        # under review, then lost on ruling
+            rows += [row("lost", amount, t_appeal),
+                     row("under_review", amount, t_first)]
+        elif customer.endswith("-partial"):    # won at first, overturned on appeal
+            rows += [row("lost", partial, t_appeal),
+                     row("won", amount, t_first)]
+        elif customer.endswith("-won"):        # lost at first, merchant appeal won
+            rows += [row("won", amount, t_appeal),
+                     row("lost", amount, t_first)]
+        elif customer.endswith("-contested"):
+            rows += [row("won", amount, t_first)]
+        elif customer.endswith("-pending"):
+            rows += [row("under_review", amount, t_first)]
+    return rows
+
+
 def _settlement_amounts():
     """Level 5's sibling read: the dollar for each case, keyed by case_id."""
     rows = []
@@ -174,7 +209,7 @@ def call_tool(level, name, args):
     if name == outcome_tool:
         key = {"list_disputes": "disputes", "list_resolution_notes": "resolutions",
                "list_case_notes": "cases", "list_dispute_settlements": "settlements",
-               "list_return_cases": "cases"}[outcome_tool]
+               "list_return_cases": "cases", "list_dispute_rulings": "rulings"}[outcome_tool]
         rows = _rows(level)
         if level == 4:      # served in pages; the cursor is an opaque offset
             start = int(args.get("cursor") or 0)

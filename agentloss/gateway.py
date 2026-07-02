@@ -340,7 +340,7 @@ class Gateway:
         census = False
         for tool, spec in specs.items():
             census = census or bool(spec.get("census", True))
-            rows = self._fetch_rows(tool, spec)
+            rows = self._latest_rows(self._fetch_rows(tool, spec), spec)
             joined = self._fetch_join(spec.get("join"))
             infer = spec.get("mode") == "infer"
             for row in rows:
@@ -410,6 +410,27 @@ class Gateway:
                 break
             args[pag.get("arg", "cursor")] = cursor
         return rows
+
+    def _latest_rows(self, rows, spec):
+        """One row per business_key: a duplicated key is a REVISED ruling (an appeal),
+        not two outcomes — counting both would double-count and could resurrect a
+        superseded verdict. `"latest_by": "item.<field>"` keeps the row with the
+        greatest value (ISO timestamps compare correctly as strings; zero-pad numeric
+        sequences); without it, the last row in list order wins (the importer's rule).
+        Rows whose business_key doesn't resolve are dropped, as the per-row loop would
+        skip them anyway."""
+        order = spec.get("latest_by")
+        best = {}                               # key -> ((rank, index), row)
+        for i, row in enumerate(rows):
+            key = _resolve(spec.get("business_key"), {"item": row})
+            if key is None:
+                continue
+            key = str(key)
+            r = _resolve(order, {"item": row}) if order else None
+            rank = ("" if r is None else str(r), i)
+            if key not in best or rank >= best[key][0]:
+                best[key] = (rank, row)
+        return [row for _, row in best.values()]
 
     def _fetch_join(self, join):
         """The outcome's dollar (or evidence) can live in a SECOND read: `join` declares

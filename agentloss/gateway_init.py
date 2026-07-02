@@ -409,6 +409,23 @@ def draft_manifest(tools, use_case="gateway", call=None):
                                                 "decision>")
                         if key_todo:
                             spec["_todo_business_key"] = key_todo
+                        if key:
+                            seen_keys = [r.get(key) for r in rows if r.get(key) is not None]
+                            if len(seen_keys) != len(set(seen_keys)):
+                                # duplicated keys = revised rulings; find what orders them
+                                fields = set().union(*[set(r) for r in rows])
+                                order = next((f for f in sorted(fields) if any(
+                                    m in f for m in ("_at", "date", "time", "seq",
+                                                     "version", "revision"))), None)
+                                if order:
+                                    spec["latest_by"] = f"item.{order}"
+                                    notes.append(f"{name}: duplicated {key} rows observed "
+                                                 f"— revisions; the greatest {order} wins "
+                                                 "(latest_by).")
+                                else:
+                                    notes.append(f"{name}: duplicated {key} rows observed "
+                                                 "but no ordering field found — the last "
+                                                 "row in list order will win.")
                         if status is None and evidence:
                             # no enum to look up — soft outcomes: infer from the text
                             spec["mode"] = "infer"

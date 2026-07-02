@@ -175,3 +175,18 @@ def test_join_discovered_for_dollarless_outcome_rows():
                            "left": "item.case_id", "right": "item.case_id"}
     assert out["loss"] == "join.amount"
     assert "list_settlement_amounts" not in m["outcomes"]
+
+
+def test_revised_rulings_get_latest_by():
+    # the same payment twice (appeal history) plus a revision timestamp
+    def call(name, arguments=None):
+        rows = [{"payment_id": "p1", "status": "won", "amount": 10.0,
+                 "revised_at": "2026-06-15T00:00:00Z"},
+                {"payment_id": "p1", "status": "lost", "amount": 10.0,
+                 "revised_at": "2026-06-01T00:00:00Z"},
+                {"payment_id": "p2", "status": "lost", "amount": 5.0,
+                 "revised_at": "2026-06-02T00:00:00Z"}]
+        return {"content": [{"type": "text", "text": json.dumps({"rulings": rows})}]}
+
+    m = draft_manifest([_tool("list_dispute_rulings")], call=call)
+    assert m["outcomes"]["list_dispute_rulings"]["latest_by"] == "item.revised_at"
