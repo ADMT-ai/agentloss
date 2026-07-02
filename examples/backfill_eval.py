@@ -140,15 +140,27 @@ def main():
     counts2 = json.loads(proc.stdout)
     check("zero-config: identical adjudication", counts2 == counts,
           f"{counts2} vs {counts}")
+    html_path = os.path.join(tmp, "report.html")
     proc = subprocess.run(
         [sys.executable, "-m", "agentloss.cli", "underwrite", "--store", store2,
-         "--agent", "support_agent", "--baseline", "human_team", "--json"],
+         "--agent", "support_agent", "--baseline", "human_team", "--json",
+         "--html", html_path],
         capture_output=True, text=True, timeout=60)
     r2 = json.loads(proc.stdout)
     check("zero-config: identical segment truths",
           abs(r2["segments"]["support_agent"]["loss_to_exposure"] - 0.04) < 1e-9
           and abs(r2["segments"]["human_team"]["loss_to_exposure"] - 0.15) < 1e-9,
           str(r2["segments"]))
+
+    # the artifact: the same truths, rendered for a human decision-maker
+    page = open(html_path, encoding="utf-8").read()
+    for needle in ("Insurability report", "QUALIFIES", "ASSESSMENT", "$1.8K",
+                   "4.0%", "15.0%", "cheaper to insure than",
+                   "silver_uncalibrated", "install the middleware"):
+        check(f"html: carries '{needle}'", needle in page, html_path)
+    check("html: self-contained (no external assets)",
+          "http" not in page.split("github.com")[0].split("<body")[0]
+          .replace("http-equiv", ""), html_path)
 
     n_fail = sum(1 for ok in _checks if not ok)
     print(f"\n{len(_checks) - n_fail}/{len(_checks)} checks pass")

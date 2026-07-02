@@ -78,6 +78,11 @@ def _underwrite_cmd(args):
         return 2
     from .underwriting import underwriting_report
     r = underwriting_report(agent=args.agent, baseline=args.baseline)
+    if args.html:
+        from .report_html import render_html
+        with open(args.html, "w", encoding="utf-8") as f:
+            f.write(render_html(r, store_path=args.store or ""))
+        print(f"wrote {args.html}", file=sys.stderr)
     if args.json:
         print(json.dumps(r, indent=2, default=str))
     else:
@@ -237,6 +242,9 @@ def main(argv=None):
     p_uw.add_argument("--agent", help="decider segment to price (a Decision.model value)")
     p_uw.add_argument("--baseline", help="decider segment to compare against "
                                          "(e.g. the human team's backfilled history)")
+    p_uw.add_argument("--html", metavar="PATH",
+                      help="also render the report as a self-contained HTML one-pager "
+                           "(the artifact you hand to an underwriter)")
     p_uw.set_defaults(func=_underwrite_cmd)
 
     p_bf = sub.add_parser("backfill",
