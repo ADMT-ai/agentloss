@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>agentloss — the loss layer for AI agent traces</title>
-  <meta name="description" content="Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record. pip install agentloss.">
-  <meta name="keywords" content="agentloss, AI agent reliability, agent error rate, dollar loss, OpenTelemetry, OpenInference, Phoenix, AI observability, ADMT">
+  <meta name="description" content="Measure your AI agent's real-world error rate and dollar loss — the loss layer on top of your existing traces and systems of record. Zero code changes via the MCP gateway. pip install agentloss.">
+  <meta name="keywords" content="agentloss, AI agent reliability, agent error rate, dollar loss, MCP gateway, MCP middleware, OpenTelemetry, OpenInference, Phoenix, AI observability, ADMT">
   <link rel="canonical" href="https://agentloss.com/">
   <meta name="robots" content="index, follow">
 
@@ -79,6 +79,16 @@
         "@type": "Question",
         "name": "Do I instrument every LLM call?",
         "acceptedAnswer": { "@type": "Answer", "text": "No — instrument only the consequential action: the handful of tool calls that move money or commit the business. That is where the cost lives and it keeps the integration a thin layer." }
+      },
+      {
+        "@type": "Question",
+        "name": "My agent isn't Python, or I can't change its code. Can I still measure it?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes — the MCP gateway. If the agent reaches its system of record over MCP (a Stripe or ERP MCP server, local or hosted), run agentloss gateway in front of that server: one config change, any agent runtime, zero code changes. It records every consequential tool call as a decision, turns the rail's disputes and credit-memos into gold ground truth, and injects agentloss_report / agentloss_doctor into the agent's own tool list. agentloss gateway init even drafts the required manifest from the server's own tools/list." }
+      },
+      {
+        "@type": "Question",
+        "name": "Our reversals live in a warehouse table or a finance CSV, not an API. Can agentloss use them?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. agentloss import maps a CSV export's columns onto resolved outcomes (omit --map and it drafts one from the file's own header), and agentloss listen is a webhook endpoint that maps the rail's pushed events to outcomes in real time. Five channels — pull, push, batch, code, generated — write the same rows into the same store." }
       }
     ]
   }
@@ -100,7 +110,9 @@
       <h1>The loss layer for AI agent traces.</h1>
       <p class="lede">
         Measure your AI agent's real-world error rate and dollar loss — the loss layer
-        on top of your existing traces and systems of record.
+        on top of your existing traces and systems of record. Or skip instrumentation
+        entirely: put the <a href="#gateway">MCP gateway</a> in front of the server your
+        agent already acts through.
       </p>
 
       <div class="install">
@@ -110,6 +122,7 @@
 
       <div class="cta-row">
         <a class="btn btn-primary" href="#quickstart">Quickstart</a>
+        <a class="btn" href="#gateway">MCP gateway</a>
         <a class="btn" href="https://github.com/ADMT-ai/agentloss">GitHub</a>
         <a class="btn" href="https://pypi.org/project/agentloss/">PyPI</a>
         <a class="btn" href="/llms.txt">llms.txt</a>
@@ -188,6 +201,55 @@ for d in phoenix.read_decisions(project="ap-agent", endpoint="http://localhost:6
       </p>
     </section>
 
+    <section id="gateway" class="quickstart">
+      <h2>Zero code changes: the MCP gateway</h2>
+      <p>
+        Businesses connect agents to their systems of record over <strong>MCP</strong> —
+        Stripe, ERPs, ticketing. The gateway is agentloss as middleware on that boundary:
+        put it in front of the SoR's MCP server (local or hosted) and one config change
+        yields the decision, the exposure, the ground truth, <em>and</em> the readout —
+        for any agent runtime, not only Python.
+      </p>
+
+      <div class="code-block">
+        <button type="button" class="copy" data-copy-target="gw-1" aria-label="Copy code">Copy</button>
+<pre id="gw-1"><code># draft the manifest from the server's own tools/list (local or --url for hosted):
+agentloss gateway init --out stripe.manifest.json --url https://mcp.stripe.com \
+    --header "Authorization: Bearer $KEY"
+
+# then run the gateway in front of the server — the agent's config points here instead:
+agentloss gateway --manifest stripe.manifest.json --url https://mcp.stripe.com \
+    --header "Authorization: Bearer $KEY"
+
+# the number, from any shell or CI:
+agentloss report --store .agentloss/store.jsonl</code></pre>
+      </div>
+
+      <p>
+        Every consequential <code>tools/call</code> records a decision; the rail's disputes
+        and credit-memos become gold ground truth (<code>agentloss_sync_outcomes</code>); and
+        <code>agentloss_report</code> / <code>agentloss_doctor</code> are injected into the
+        agent's own tool list, so it reads its error rate and dollar loss
+        <strong>through the same connection it acts through</strong>. Proven end-to-end by
+        oracle evals in CI — see
+        <a href="https://github.com/ADMT-ai/agentloss/blob/main/docs/GATEWAY.md">docs/GATEWAY.md</a>
+        and ready-made
+        <a href="https://github.com/ADMT-ai/agentloss/tree/main/manifests">manifests</a>.
+      </p>
+
+      <h3>Ground truth, in whatever shape you have it</h3>
+      <p>
+        Outcomes reach the store five ways — <strong>pull</strong> (the gateway's sync /
+        SDK detectors), <strong>push</strong> (<code>agentloss listen</code>, a webhook
+        endpoint mapping the rail's events in real time), <strong>batch</strong>
+        (<code>agentloss import</code>, a finance/warehouse CSV; it drafts the column
+        mapping from the file's own header), <strong>code</strong>
+        (<code>record_outcomes</code>), and <strong>generated</strong>
+        (<code>sample_and_verify</code> + calibration). One status contract everywhere;
+        see <a href="https://github.com/ADMT-ai/agentloss/blob/main/docs/OUTCOMES.md">docs/OUTCOMES.md</a>.
+      </p>
+    </section>
+
     <section id="agents" class="agents">
       <h2>For AI coding agents</h2>
       <p>
@@ -198,7 +260,8 @@ for d in phoenix.read_decisions(project="ap-agent", endpoint="http://localhost:6
         <li><a href="/llms.txt"><strong>/llms.txt</strong></a> — machine-legible spec + shortest-correct-path usage.</li>
         <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/AGENTS.md"><strong>AGENTS.md</strong></a> — drop-in rule to paste into a project's <code>AGENTS.md</code> / <code>CLAUDE.md</code>.</li>
         <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/skills/instrument-agent-reliability/SKILL.md"><strong>Skill</strong></a> — the canonical instrumentation recipe.</li>
-        <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/mcp/agentloss_mcp.py"><strong>MCP server</strong></a> — <code>how_to_instrument</code>, <code>explain_attribute</code>, <code>validate_integration</code>.</li>
+        <li><a href="https://github.com/ADMT-ai/agentloss/blob/main/mcp/agentloss_mcp.py"><strong>MCP server</strong></a> — <code>how_to_instrument</code>, <code>how_to_gateway</code>, <code>explain_attribute</code>, <code>validate_integration</code> (inspects a persisted store, so an agent can prove its wiring).</li>
+        <li><a href="https://github.com/ADMT-ai/agentloss/tree/main/manifests"><strong>manifests/</strong></a> — ready-made gateway manifests for known MCP servers, or draft one with <code>agentloss gateway init</code>.</li>
       </ul>
     </section>
 
@@ -262,6 +325,28 @@ for d in phoenix.read_decisions(project="ap-agent", endpoint="http://localhost:6
           No — instrument only the <strong>consequential action</strong>: the handful of tool calls
           that move money or commit the business. That's where the cost lives, and it keeps the
           integration a thin layer.
+        </p>
+      </details>
+
+      <details>
+        <summary>My agent isn't Python, or I can't change its code. Can I still measure it?</summary>
+        <p>
+          Yes — the <a href="#gateway">MCP gateway</a>. If the agent reaches its system of record
+          over MCP (a Stripe or ERP MCP server, local or hosted), run <code>agentloss gateway</code>
+          in front of that server: one config change, any agent runtime, zero code changes.
+          <code>agentloss gateway init</code> drafts the required manifest from the server's own
+          <code>tools/list</code>.
+        </p>
+      </details>
+
+      <details>
+        <summary>Our reversals live in a warehouse table or a finance CSV, not an API. Can agentloss use them?</summary>
+        <p>
+          Yes. <code>agentloss import</code> maps a CSV export's columns onto resolved outcomes
+          (omit <code>--map</code> and it drafts one from the file's own header), and
+          <code>agentloss listen</code> is a webhook endpoint mapping the rail's pushed events to
+          outcomes in real time. Five channels — pull, push, batch, code, generated — write the
+          same rows into the same store.
         </p>
       </details>
     </section>
