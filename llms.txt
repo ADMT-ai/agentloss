@@ -151,6 +151,17 @@ derived metrics leave.
 - `agentloss.*` semantic conventions carry the attributes (value-at-risk, coverage envelope,
   loss, model provenance). See docs/SDK-SPEC.md.
 
+## The insured-agent vertical: support concessions
+
+The audit record an LLM support agent writes (SDK or gateway — no agent changes) so its
+refund/credit/goodwill decisions qualify for insurance: decisions carry the concession
+amount as exposure and an envelope verdict; evidence is provenance-typed (gold = the QA
+review sample at known pi / reconciliation / chargebacks; silver = inferred from ticket
+prose, calibrated). `agentloss underwrite --store s.jsonl --json` renders exposure,
+wrongful-grant frequency (CI + HT-reweighted), severity, realized/expected loss,
+loss-to-exposure, and the QUALIFICATION findings; exits 1 if the record does not qualify.
+See docs/SUPPORT-CONCESSION.md.
+
 ## Docs
 
 - docs/SDK-SPEC.md — full API, `agentloss.*` conventions, packs/adapters, sampling + calibration.

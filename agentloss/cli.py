@@ -71,6 +71,41 @@ def _report_cmd(args):
     return 0
 
 
+def _underwrite_cmd(args):
+    if not _load_store_arg(args):
+        print("agentloss underwrite needs --store <path> (the audit record: a JSONL store "
+              "written by the gateway or agentloss.persist).", file=sys.stderr)
+        return 2
+    from .underwriting import underwriting_report
+    r = underwriting_report()
+    if args.json:
+        print(json.dumps(r, indent=2, default=str))
+    else:
+        e, fq, sv, ls, ev = (r["exposure"], r["frequency"], r["severity"],
+                             r["loss"], r["evidence"])
+        print("=" * 60)
+        print(f"underwriting report — {r['profile']}")
+        print("=" * 60)
+        print(f"exposure  : {e['covered_in_envelope']} covered concession(s), "
+              f"${e['total_usd']:,.0f} written, max single ${e['max_single_usd']:,.0f}")
+        print(f"frequency : wrongful-grant rate {fq['wrongful_grant_rate']:.2%} "
+              f"[{fq['rate_ci'][0]:.2%}, {fq['rate_ci'][1]:.2%}] "
+              f"(n={fq['n_evidenced']}; reweighted {fq['rate_reweighted']:.2%})")
+        print(f"severity  : {sv['errors']} wrongful grant(s), mean "
+              f"${sv['mean_loss_usd']:,.0f}, max ${sv['max_loss_usd']:,.0f}")
+        print(f"loss      : realized ${ls['realized_usd']:,.0f}, expected "
+              f"${ls['expected_usd']:,.0f}, loss-to-exposure "
+              f"{ls['loss_to_exposure']:.3%}")
+        print(f"evidence  : {ev['outcome_coverage']:.0%} coverage, {ev['gold']} gold / "
+              f"{ev['silver']} silver, sampling={ev['sampling']}")
+        print("-" * 60)
+        for f in r["qualification"]:
+            if f["level"] != "ok":
+                print(f"[{f['level'].upper()}] {f['id']}: {f['message']}")
+        print(f"qualifies : {'YES' if r['qualifies'] else 'NO'} (level={r['level']})")
+    return 0 if r["qualifies"] else 1
+
+
 def _import_cmd(args):
     from .importer import import_csv, suggest_mapping
     import csv as _csv
@@ -135,6 +170,15 @@ def main(argv=None):
     p_report.add_argument("--json", action="store_true", help="machine-readable output")
     p_report.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
     p_report.set_defaults(func=_report_cmd)
+
+    p_uw = sub.add_parser("underwrite",
+                          help="render the audit record for an underwriter: exposure, "
+                               "frequency, severity, loss ratio, qualification "
+                               "(docs/SUPPORT-CONCESSION.md); exits 1 if the record "
+                               "does not qualify")
+    p_uw.add_argument("--json", action="store_true", help="machine-readable output")
+    p_uw.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
+    p_uw.set_defaults(func=_underwrite_cmd)
 
     p_imp = sub.add_parser("import", help="batch outcomes from a CSV export (the warehouse "
                                           "channel); omit --map to draft one from the header")
