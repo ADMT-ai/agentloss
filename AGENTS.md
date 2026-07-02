@@ -9,9 +9,13 @@
 > outcome later resolves (a correction, dispute, audit result, or human review), call
 > `agentloss.report_outcome(business_key=..., ground_truth=..., source=..., realized_loss_usd=...)`.
 > Do NOT instrument every LLM call — only the money-moving / state-committing ones. See `llms.txt`.
-> If the agent reaches its system of record over MCP, skip code changes entirely: run
-> `agentloss gateway --manifest m.json -- <the SoR's MCP server command>` (see `docs/GATEWAY.md`),
-> then read the number with `agentloss report --store .agentloss/store.jsonl`.
+> If the agent reaches its system of record over MCP, skip code changes entirely — the loop is:
+> `agentloss gateway init --out m.json -- <SoR MCP server command>` (drafts the manifest from
+> the server itself: money-movers, outcome reads, pagination/joins, and `mode: infer` when the
+> outcomes are free text — the outcome is inferred and the loss estimated, recorded silver),
+> then `agentloss gateway --manifest m.json -- <server command>`, then verify with
+> `agentloss doctor --json --store .agentloss/store.jsonl` and read the number with
+> `agentloss report --store .agentloss/store.jsonl` (see `docs/GATEWAY.md`).
 
 ## Working in this repository
 

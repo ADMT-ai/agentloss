@@ -171,11 +171,17 @@ AGENTLOSS_VERIFIER_LLM=claude ANTHROPIC_API_KEY=... python -m dogfood.run
 ## For AI coding agents
 
 `agentloss` is built to be discovered and wired by coding agents:
-[`llms.txt`](llms.txt), the [`instrument-agent-reliability`](skills/instrument-agent-reliability/SKILL.md)
-skill, the [`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/agentloss_mcp.py)
-(`how_to_instrument`, `how_to_gateway`, `explain_attribute`, `validate_integration` — which
-inspects a persisted `--store` file, so an agent can *prove* its wiring). Every claim in the
-docs is backed by an oracle eval run in CI: `pytest -q`.
+[`llms.txt`](llms.txt) (also served at [agentloss.com/llms.txt](https://agentloss.com/llms.txt) —
+starts with a which-path decision tree), the
+[`instrument-agent-reliability`](skills/instrument-agent-reliability/SKILL.md) skill, the
+[`AGENTS.md`](AGENTS.md) rule, and an [MCP server](mcp/agentloss_mcp.py)
+(`how_to_instrument`, `how_to_gateway`, `how_to_onboard_sor` — the full onboarding runbook,
+including the no-outcome-data path — `explain_attribute`, `explain_manifest_field`, and
+`validate_integration`, which inspects a persisted `--store` file so an agent can *prove* its
+wiring). The gateway loop itself is agent-shaped: `init` drafts the config from the server,
+`doctor` says what's mis-wired in plain language, and the measurement tools ride the same MCP
+connection the agent acts through. Every claim in the docs is backed by an oracle eval run in
+CI: `pytest -q`.
 
 ## License
 

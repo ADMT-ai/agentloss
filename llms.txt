@@ -19,6 +19,19 @@ Every eval/observability tool (Braintrust, Arize, LangSmith, Galileo) scores qua
 decisions to real outcomes and reports the **dollars**. Standard-aligned (OpenTelemetry /
 OpenInference) — a thin layer, not a rewrite.
 
+## Which path (decide in one look)
+
+1. Agent reaches its system of record over MCP (Stripe MCP, ERP MCP, any tools server)
+   -> the GATEWAY, zero code changes, any runtime: `agentloss gateway init` then
+   `agentloss gateway` (below).
+2. You own the agent's Python and the action goes through a known rail (payment SDK, ERP
+   client) -> a PACK.
+3. You own the Python and it's bespoke -> `@decision` + `report_outcome` (below).
+4. Already tracing with OTel/OpenInference -> `ingest_spans(...)`, add `agentloss.*` attrs.
+Ground truth in every case: use the channel matching where reversals live (pull/push/batch/
+code/generated — see Ground-truth channels). No outcome data at all? The gateway can INFER
+the outcome and ESTIMATE the loss (soft outcomes, below).
+
 ## Shortest correct path
 
 Instrument the CONSEQUENTIAL action only (the tool call that moves money or commits the
@@ -41,7 +54,8 @@ def approve_payment(invoice):
 report_outcome(
     business_key="INV-88231",
     ground_truth="duplicate-should-block",
-    # source: recovery_audit | dispute | chargeback | refund | human_queue | verification_agent
+    # source: recovery_audit | dispute | chargeback | refund | human_queue |
+    #         verification_agent | inferred   (last two = silver: expected loss, not realized)
     source="recovery_audit",
     realized_loss_usd=14200,
 )
@@ -79,20 +93,37 @@ skip instrumentation entirely — run the agentloss gateway in front of that ser
     agentloss gateway --manifest m.json --store .agentloss/store.jsonl -- <server command>
     agentloss gateway --manifest m.json --url https://<hosted-mcp-server> --header "Authorization: Bearer ..."
 
+The no-hands loop (an agent can run all three steps):
+
+    agentloss gateway init --out m.json -- <server command>      # 1. onboard: draft the manifest
+    agentloss gateway --manifest m.json --store s.jsonl -- <server command>   # 2. execute
+    agentloss doctor --json --store s.jsonl                      # 3. verify the wiring
+
 A JSON manifest (a pack, as data) declares the consequential tools (paths to the amount and
-business key in `arguments`/`result`) and the reversal tool (`error_statuses`/`correct_statuses`
--> gold ground truth; or `"mode": "infer"` when the rows are free text — the outcome is
-inferred and the loss estimated from the evidence, else the decision's value-at-risk, recorded
-silver). Draft it FROM the server itself — `agentloss gateway init --out m.json
--- <server command>` (or `--url https://...` for a hosted server) reads tools/list, classifies
-the money-movers, probes the outcome reads (drafting `mode: infer` for text-only rows), emits a
-reviewable `business_context` block, and marks anything unresolved with `_todo`;
-ready-made manifests are in `manifests/`. The
-gateway records a decision per consequential `tools/call`, injects
+business key in `arguments`/`result`) and the outcome tool(s). Outcome spec capabilities —
+each drafted automatically by `init` when it probes the shape from real rows:
+- `error_statuses`/`correct_statuses` -> gold ground truth from a status enum; an UNKNOWN
+  vocabulary (MERCHANT_DEBIT, ...) is LEARNED from the rows' own free text and marked
+  `"fidelity": "silver"` until a human reviews the mapping (heuristics never book realized P&L).
+- `"mode": "infer"` -> soft outcomes: free-text rows are read, the outcome inferred from a
+  transparent marker vocabulary, the loss estimated (explicit column > dollar amount next to
+  the resolution language > the decision's value-at-risk bound). Silver: expected loss only.
+- `"reasoner": "llm"` + env AGENTLOSS_REASONER=path.py:fn -> a reasoning agent judges evidence
+  the vocabulary can't; verdicts land under source `verification_agent` so two-phase
+  calibration (agentloss.calibrate) corrects its misses/false-alarms/dollar bias.
+- `"paginate": {"cursor": "result.next_cursor", "arg": "cursor"}` -> cursors followed to the
+  end (page one alone never under-counts).
+- `"join": {"tool", "items", "left", "right"}` -> the dollar lives in a sibling read; the
+  joined row is exposed under `join.` paths ("loss": "join.amount").
+- `"latest_by": "item.revised_at"` -> appeal histories dedupe to the latest ruling.
+`init` also emits a reviewable `business_context` block (domain, money-movers, each channel's
+mode) and explicit `_todo` markers for anything unresolved; ready-made manifests in
+`manifests/`. The gateway records a decision per consequential `tools/call`, injects
 `agentloss_report` / `agentloss_doctor` / `agentloss_sync_outcomes` / `agentloss_record_outcome`
 into `tools/list` (the agent reads its own error rate through the same connection), and persists
 to a JSONL store for out-of-process readout: `agentloss report --store <path>`. Works for ANY
-agent runtime — TypeScript, n8n, Claude Code — not only Python. See docs/GATEWAY.md.
+agent runtime — TypeScript, n8n, Claude Code — not only Python. Proven up an 8-rung synthetic
+SoR ladder in CI (`examples/sor_ladder_eval.py`). See docs/GATEWAY.md.
 
 ## Ground-truth channels (docs/OUTCOMES.md)
 
