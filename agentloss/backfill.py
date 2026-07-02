@@ -160,7 +160,8 @@ def backfill_rows(rows, mapping, *, use_case="support_concession",
         ts = str(row.get(mapping["ts"], "") or "") if "ts" in mapping else ""
         d = STORE.record(Decision(action=action, value_at_risk_usd=amount,
                                   business_key=key, use_case=use_case, model=decider,
-                                  customer=customer, ts=ts))
+                                  customer=customer, ts=ts),
+                         stamp=False)          # history: never fabricate a date
         if store_path:
             append_decision(d, store_path)
         counts["decisions"] += 1

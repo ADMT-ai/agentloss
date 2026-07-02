@@ -95,6 +95,23 @@ def _tile(label, value, note=""):
             f'<div class="value">{_e(value)}</div>{note_html}</div>')
 
 
+def _dynamics(report):
+    acc, stab = report.get("accumulation"), report.get("stability")
+    if not acc or not stab:
+        return ""
+    parts = [f"worst loss event {_money(acc['max_event_loss_usd'])} across "
+             f"{acc['max_event_decisions']} decision(s)",
+             f"max 24h {_money(acc['max_24h_loss_usd'])}",
+             f"max 7d {_money(acc['max_7d_loss_usd'])}"]
+    if stab.get("recent") and stab.get("baseline"):
+        verdict = "DRIFTING" if stab["drifting"] else "stable"
+        parts.append(f"recent {stab['recent_days']}d rate "
+                     f"{_pct(stab['recent']['rate'])} vs baseline "
+                     f"{_pct(stab['baseline']['rate'])} ({verdict})")
+    return ('<h2>Loss dynamics</h2><div class="facts">'
+            + _e(" · ".join(parts)) + "</div>")
+
+
 def render_html(report, store_path=""):
     """The underwriting report dict (agentloss.underwriting.underwriting_report)
     rendered as a self-contained one-page HTML document. Returns the HTML string."""
@@ -182,6 +199,7 @@ def render_html(report, store_path=""):
 <div class="tiles">{tiles}</div>
 <div class="facts">{e["decisions"]} decisions recorded · {e["granting"]} granting ·
 sources: {_e(", ".join(f"{k} ({v})" for k, v in sorted(ev["sources"].items())))}</div>
+{_dynamics(report)}
 {cmp_html}
 <h2>Qualification</h2>
 <ul class="findings">{findings}</ul>
