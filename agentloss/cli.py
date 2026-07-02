@@ -71,6 +71,77 @@ def _report_cmd(args):
     return 0
 
 
+def _underwrite_cmd(args):
+    if not _load_store_arg(args):
+        print("agentloss underwrite needs --store <path> (the audit record: a JSONL store "
+              "written by the gateway or agentloss.persist).", file=sys.stderr)
+        return 2
+    from .underwriting import underwriting_report
+    r = underwriting_report(agent=args.agent, baseline=args.baseline)
+    if args.json:
+        print(json.dumps(r, indent=2, default=str))
+    else:
+        e, fq, sv, ls, ev = (r["exposure"], r["frequency"], r["severity"],
+                             r["loss"], r["evidence"])
+        print("=" * 60)
+        print(f"underwriting report — {r['profile']}")
+        print("=" * 60)
+        print(f"exposure  : {e['covered_in_envelope']} covered concession(s), "
+              f"${e['total_usd']:,.0f} written, max single ${e['max_single_usd']:,.0f}")
+        print(f"frequency : wrongful-grant rate {fq['wrongful_grant_rate']:.2%} "
+              f"[{fq['rate_ci'][0]:.2%}, {fq['rate_ci'][1]:.2%}] "
+              f"(n={fq['n_evidenced']}; reweighted {fq['rate_reweighted']:.2%})")
+        print(f"severity  : {sv['errors']} wrongful grant(s), mean "
+              f"${sv['mean_loss_usd']:,.0f}, max ${sv['max_loss_usd']:,.0f}")
+        print(f"loss      : realized ${ls['realized_usd']:,.0f}, expected "
+              f"${ls['expected_usd']:,.0f}, loss-to-exposure "
+              f"{ls['loss_to_exposure']:.3%}")
+        print(f"evidence  : {ev['outcome_coverage']:.0%} coverage, {ev['gold']} gold / "
+              f"{ev['silver']} silver, sampling={ev['sampling']}")
+        for name, s in (r.get("segments") or {}).items():
+            print(f"  segment {name}: {s['decisions']} decision(s), rate "
+                  f"{s['wrongful_grant_rate']:.2%}, LTX {s['loss_to_exposure']:.3%}")
+        cmp = r.get("baseline_comparison")
+        if cmp:
+            print(f"vs baseline: rate {cmp['rate_delta']:+.2%}, loss-to-exposure "
+                  f"{cmp['loss_to_exposure_delta']:+.3%} "
+                  f"({'CHEAPER' if cmp['cheaper_to_insure'] else 'costlier'} to insure "
+                  f"than {cmp['baseline']})")
+        print("-" * 60)
+        for f in r["qualification"]:
+            if f["level"] != "ok":
+                print(f"[{f['level'].upper()}] {f['id']}: {f['message']}")
+        print(f"qualifies : {'YES' if r['qualifies'] else 'NO'} (level={r['level']})")
+        b = r["binding"]
+        print(f"binding   : capture={b['capture']} — "
+              + ("BOUND-READY (live middleware capture present)" if b["bound_ready"]
+                 else "assessment only; to bind, install the gateway middleware"))
+    return 0 if r["qualifies"] else 1
+
+
+def _backfill_cmd(args):
+    from .backfill import backfill_csv
+    mapping = dict(part.split("=", 1) for part in args.map.split(",") if "=" in part)
+    try:
+        counts = backfill_csv(
+            args.csv, mapping, use_case=args.use_case,
+            error_statuses=[s for s in (args.error_statuses or "").split(",") if s],
+            correct_statuses=[s for s in (args.correct_statuses or "").split(",") if s],
+            store_path=args.store)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(counts))
+    else:
+        print(f"backfilled: {counts['decisions']} decision(s) — {counts['errors']} "
+              f"wrongful, {counts['correct']} correct, {counts['nonfinal']} non-final, "
+              f"{counts['skipped']} skipped")
+        print(f"next: agentloss underwrite --store {args.store} "
+              "[--agent <decider> --baseline <decider>]")
+    return 0
+
+
 def _import_cmd(args):
     from .importer import import_csv, suggest_mapping
     import csv as _csv
@@ -135,6 +206,34 @@ def main(argv=None):
     p_report.add_argument("--json", action="store_true", help="machine-readable output")
     p_report.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
     p_report.set_defaults(func=_report_cmd)
+
+    p_uw = sub.add_parser("underwrite",
+                          help="render the audit record for an underwriter: exposure, "
+                               "frequency, severity, loss ratio, qualification "
+                               "(docs/SUPPORT-CONCESSION.md); exits 1 if the record "
+                               "does not qualify")
+    p_uw.add_argument("--json", action="store_true", help="machine-readable output")
+    p_uw.add_argument("--store", help="JSONL store file to replay (gateway/persist)")
+    p_uw.add_argument("--agent", help="decider segment to price (a Decision.model value)")
+    p_uw.add_argument("--baseline", help="decider segment to compare against "
+                                         "(e.g. the human team's backfilled history)")
+    p_uw.set_defaults(func=_underwrite_cmd)
+
+    p_bf = sub.add_parser("backfill",
+                          help="build the audit record RETROACTIVELY from a historical "
+                               "export — day-one actuarial history; the decider column "
+                               "becomes the segment (docs/SUPPORT-CONCESSION.md)")
+    p_bf.add_argument("--csv", required=True, help="the historical export")
+    p_bf.add_argument("--map", required=True,
+                      help='"business_key=<col>,amount=<col>[,decider=<col>]'
+                           '[,action=<col>][,evidence=<col>][,status=<col>]"')
+    p_bf.add_argument("--error-statuses", help="status values meaning the decision was "
+                                               "wrong (with a status column)")
+    p_bf.add_argument("--correct-statuses", help="status values meaning it was right")
+    p_bf.add_argument("--use-case", default="support_concession")
+    p_bf.add_argument("--store", required=True, help="JSONL store to write the record to")
+    p_bf.add_argument("--json", action="store_true", help="machine-readable output")
+    p_bf.set_defaults(func=_backfill_cmd)
 
     p_imp = sub.add_parser("import", help="batch outcomes from a CSV export (the warehouse "
                                           "channel); omit --map to draft one from the header")

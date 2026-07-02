@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentloss"
-version = "0.0.24"
+version = "0.0.27"
 description = "Measure the real-world error rate and dollar cost of an AI agent's decisions. OpenTelemetry-native."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,8 @@ keywords = [
     "ai-agents", "agent-evals", "production-evals", "llm", "reliability",
     "error-rate", "cost-of-errors", "dollar-loss", "ground-truth", "outcomes",
     "opentelemetry", "openinference", "agent-observability",
+    "mcp", "model-context-protocol", "mcp-gateway", "system-of-record",
+    "outcome-inference", "loss-estimation", "agent-onboarding", "ai-governance",
 ]
 classifiers = [
     "License :: OSI Approved :: Apache Software License",
@@ -37,6 +39,8 @@ agentloss = "agentloss.cli:main"
 [project.urls]
 Homepage = "https://agentloss.com"
 Repository = "https://github.com/ADMT-ai/agentloss"
+Documentation = "https://github.com/ADMT-ai/agentloss/blob/main/docs/GATEWAY.md"
+"llms.txt" = "https://agentloss.com/llms.txt"
 Organization = "https://admt.ai"
 
 [tool.setuptools.packages.find]

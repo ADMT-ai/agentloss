@@ -18,8 +18,11 @@ def wilson(k, n, z=1.96):
     return p, max(0.0, center - half), min(1.0, center + half)
 
 
-def false_approve(cfg):
-    approved = [d for d in STORE.decisions.values() if d.action == "approve"]
+def false_approve(cfg, approve_actions=("approve",)):
+    """False-positive rate over the COMMITTING actions. `approve_actions` names the
+    action vocabulary that commits the business (a support vertical grants/partials;
+    an AP vertical approves) — the statistics are identical."""
+    approved = [d for d in STORE.decisions.values() if d.action in approve_actions]
     N = len(approved)
     k, n = 0, 0
     ht_num = 0.0            # Horvitz-Thompson numerator: sum(err / pi)
@@ -29,7 +32,7 @@ def false_approve(cfg):
         o = STORE.outcomes.get(d.business_key)
         if o is None or not o.sampled:          # only the random rate sample (gold OR silver)
             continue
-        err = 1 if o.ground_truth != "approve" else 0
+        err = 1 if o.ground_truth != d.action else 0   # the core error definition
         n += 1
         k += err
         ht_num += err / o.pi

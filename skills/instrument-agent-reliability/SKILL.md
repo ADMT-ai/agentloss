@@ -1,6 +1,6 @@
 ---
 name: instrument-agent-reliability
-description: Instrument an AI agent with agentloss to measure the real-world error rate and dollar cost of its decisions. Use when the user wants to know how much an agent's mistakes cost, quantify the financial impact of AI agent errors, measure how often an agent is wrong in production, compare an agent's decisions to actual outcomes / ground truth, decide whether it's safe to give an agent more autonomy, run production/online evals on real outcomes, or prove an agent is reliable/auditable/insurable. Keywords: cost of agent errors, agent error rate, dollar loss, production evals, ground truth outcomes, agent reliability, autonomy, LLM agent monitoring.
+description: Instrument an AI agent with agentloss to measure the real-world error rate and dollar cost of its decisions. Use when the user wants to know how much an agent's mistakes cost, quantify the financial impact of AI agent errors, measure how often an agent is wrong in production, compare an agent's decisions to actual outcomes / ground truth, decide whether it's safe to give an agent more autonomy, run production/online evals on real outcomes, prove an agent is reliable/auditable/insurable, onboard a system of record for outcome measurement, or measure an agent when there is NO explicit outcome data (infer outcomes, estimate losses). Keywords: cost of agent errors, agent error rate, dollar loss, production evals, ground truth outcomes, agent reliability, autonomy, LLM agent monitoring, MCP gateway, system of record, outcome inference, loss estimation.
 ---
 
 # Instrument agent reliability & cost (agentloss)
@@ -61,14 +61,24 @@ Wire `agentloss` into an agent that takes consequential actions so its productio
 
 ## Notes
 - **MCP gateway** (skip code changes entirely): if the agent reaches its system of record over
-  MCP (a Stripe/ERP MCP server), run `agentloss gateway --manifest m.json -- <server command>`
-  in front of it instead of steps 1–5. The manifest declares the consequential tools + the
-  reversal tool; the gateway records decisions, syncs gold outcomes, and injects
-  `agentloss_report`/`agentloss_doctor` into the agent's own tool list. Works for any agent
-  runtime (not only Python). Draft the manifest from the server itself: `agentloss gateway init
-  --out m.json -- <server command>` (resolve any `_todo` markers it leaves — call the tool once,
-  read the shape); ready-made ones are in `manifests/`. See `docs/GATEWAY.md`; readout:
-  `agentloss report --store <path>`.
+  MCP (a Stripe/ERP MCP server), replace steps 1–5 with the three-command loop —
+  `agentloss gateway init --out m.json -- <server command>` (onboard: drafts the manifest from
+  the server itself — money-movers, outcome reads, pagination, cross-tool joins, revision
+  dedupe, and a reviewable `business_context` block; resolve any `_todo` markers it leaves),
+  `agentloss gateway --manifest m.json -- <server command>` (execute), then
+  `agentloss doctor --json --store .agentloss/store.jsonl` (verify) and
+  `agentloss report --store <path>` (deliver). The gateway records decisions, syncs outcomes,
+  and injects `agentloss_report`/`agentloss_doctor` into the agent's own tool list. Works for
+  any agent runtime (not only Python). Hosted servers: `--url https://... --header
+  "Authorization: ..."`. Ready-made manifests in `manifests/`; see `docs/GATEWAY.md`.
+- **No outcome data to look up?** If the SoR writes resolutions as free text (case notes,
+  tickets) or the status vocabulary is unknown, `init` drafts it automatically: `"mode":
+  "infer"` reads the rows and **infers the outcome + estimates the loss** (explicit column →
+  amount next to the resolution language → the decision's value-at-risk); an unknown status
+  enum is **learned** from the rows' own text (marked `"fidelity": "silver"` until reviewed);
+  prose beyond the vocabulary gets `"reasoner": "llm"` + `AGENTLOSS_REASONER=path.py:fn`.
+  All inferred verdicts are silver — estimated dollars flow through expected loss, never
+  realized — and calibrate against a small gold budget via `agentloss.calibrate`.
 - **Packs** (skip hand-instrumentation): if the action goes through a known distribution system
   (a payment SDK, an ERP client, an agent tool), apply a pack instead of steps 3–4.
   `agentloss.packs.capture(fn, amount_of=..., key_of=...)` wraps the money-mover so every call
